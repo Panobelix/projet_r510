@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Carte OpenStreetMap interactive</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+        <link rel="stylesheet" href="styles.css">
+        <style>
+            html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
+        </style>
+</head>
+<body>
+    <div id="requete"></div>
+    <div id="map"></div>
+    <!-- Overlay de chargement -->
+    <div id="loading-overlay" aria-hidden="true">
+        <div class="spinner"></div>
+        <div class="loading-text">Chargement…</div>
+    </div>
+    <!-- Panneau espèces / taxonomie -->
+    <div id="species-panel">
+        <div class="species-header">Filtre taxonomique</div>
+        <div id="taxonomy" class="taxonomy-controls">
+            <div class="tax-row"><label for="select-kingdom">Kingdom</label><select id="select-kingdom"><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-phylum">Phylum</label><select id="select-phylum" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-class">Class</label><select id="select-class" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-order">Order</label><select id="select-order" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-family">Family</label><select id="select-family" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-genus">Genus</label><select id="select-genus" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-species">Species</label><select id="select-species" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-scientificName">Scientific name</label><select id="select-scientificName" disabled><option value="">—</option></select></div>
+            <div class="tax-actions">
+                <button id="btn-reset-taxonomy" type="button">Réinitialiser</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Panneau dates (en bas à droite) -->
+    <div id="date-panel" class="date-panel">
+        <div class="date-header">Période</div>
+        <div class="date-controls">
+            <div class="date-row">
+                <label>De: <span id="year-min-label">—</span></label>
+                <input id="year-min" type="range" min="0" max="0" value="0" />
+            </div>
+            <div class="date-row">
+                <label>À: <span id="year-max-label">—</span></label>
+                <input id="year-max" type="range" min="0" max="0" value="0" />
+            </div>
+        </div>
+    </div>
+    <script src="/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+html, body, #map {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+#map {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 1;
+}
+
+/* Panneau espèces en bas à gauche */
+#species-panel {
+    position: fixed;
+    left: 12px;
+    bottom: 12px;
+    width: 280px;
+    max-height: 40vh;
+    background: rgba(128, 128, 128, 0.6); /* gris 60% de transparence */
+    color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    overflow: hidden;
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+}
+
+.species-header {
+    font-weight: 600;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+
+.species-list {
+    max-height: 34vh;
+    overflow: auto;
+}
+
+.species-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.species-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.species-item input[type="checkbox"] {
+    min-width: 16px;
+    min-height: 16px;
+}
+
+.taxonomy-controls {
+    padding: 8px 10px;
+}
+.tax-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.tax-row label {
+    font-size: 12px;
+}
+.tax-row select {
+    width: 100%;
+}
+.tax-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 6px;
+}
+.tax-actions button {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.tax-actions button:hover {
+    background: rgba(255,255,255,0.25);
+}
+
+/* Overlay de chargement centré */
+#loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    display: none; /* visible uniquement pendant le chargement */
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    z-index: 2000;
+}
+
+#loading-overlay.active {
+    display: flex;
+}
+
+#loading-overlay .spinner {
+    width: 56px;
+    height: 56px;
+    border: 6px solid rgba(255,255,255,0.35);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+#loading-overlay .loading-text {
+    color: #fff;
+    margin-top: 12px;
+    font-weight: 600;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.leaflet-control-layers {
+    z-index: 1000;
+}
+
+/* Panneau des dates en bas à droite */
+.date-panel {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    width: 260px;
+    background: rgba(128, 128, 128, 0.6);
+    color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    overflow: hidden;
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+}
+.date-header {
+    font-weight: 600;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+.date-controls {
+    padding: 8px 10px;
+}
+.date-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.date-row label {
+    font-size: 12px;
+}
+.date-row input[type="range"] {
+    width: 100%;
+}
+
