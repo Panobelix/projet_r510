@@ -74,29 +74,6 @@ function scheduleReconnect(nextAttempt = 2, wait = 3000) {
 
 connectToMongo();
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-app.listen(PORT, () => {
-  console.log(`Serveur démarré sur le port ${PORT}`);
-});
-
-// Route d'exemple pour vérifier l'accès à la BDD
-// (supprimé) /api/documents — Non essentiel pour la recherche taxonomique
-
-// Health check
-app.get('/api/health', async (_req, res) => {
-  const status = {
-    uptime: process.uptime(),
-    mongodb: client.topology ? client.topology.s.description.type : 'unknown',
-    connected: !!collection,
-    db: dbName,
-    lastMongoError: lastMongoError ? String(lastMongoError.message || lastMongoError) : null,
-  };
-  res.json(status);
-});
-
 // Mapping util to support multiple field names and cast to numbers
 function toNumberOrNull(v) {
   if (v === undefined || v === null) return null;
@@ -109,6 +86,7 @@ function toNumberOrNull(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
+
 
 // Try to extract lat/lng from a generic object with varied key names
 function latLngFromObject(obj) {
@@ -123,6 +101,7 @@ function latLngFromObject(obj) {
   const lngRaw = get(['lng','lon','long','longitude','x','longitud']);
   return { lat: toNumberOrNull(latRaw), lng: toNumberOrNull(lngRaw) };
 }
+
 
 function mapDocToObservation(doc) {
   // Try common latitude/longitude field names
@@ -197,6 +176,22 @@ function mapDocToObservation(doc) {
     __rawFields: undefined,
   };
 }
+
+
+/**
+ * *************************
+ * ******** ROUTES *********
+ * *************************
+ */
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Serveur démarré sur le port ${PORT}`);
+});
+
 
 // Endpoint principal: renvoie des observations filtrées (et mappées) pour la carte
 app.get('/api/observations', async (req, res) => {

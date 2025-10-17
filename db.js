@@ -26,3 +26,5 @@ async function closeDB() {
 }
 
 module.exports = { connectDB, closeDB };
+
+
