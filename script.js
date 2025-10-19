@@ -21,7 +21,9 @@ L.control.layers({ 'OpenStreetMap': osm, 'Satellite': sat, 'Topographique': topo
 const markers = L.layerGroup().addTo(map);
 const statusDiv = document.getElementById('requete');
 const loadingOverlay = document.getElementById('loading-overlay');
+// Affiche l'overlay de chargement en ajoutant la classe 'active'.
 const showLoader = () => loadingOverlay && loadingOverlay.classList.add('active');
+// Cache l'overlay de chargement en retirant la classe 'active'.
 const hideLoader = () => loadingOverlay && loadingOverlay.classList.remove('active');
 // Ne rien charger au démarrage tant qu'aucun filtre n'est sélectionné
 if (statusDiv) statusDiv.textContent = 'Sélectionnez un filtre taxonomique pour afficher la carte.';
@@ -39,6 +41,7 @@ const selects = {
 };
 const levels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
 
+// Réinitialise et désactive tous les sélecteurs taxonomiques situés en dessous du niveau donné.
 function resetBelow(level) {
   const idx = levels.indexOf(level);
   for (let i = idx + 1; i < levels.length; i++) {
@@ -49,11 +52,13 @@ function resetBelow(level) {
   }
 }
 
+// Remplit un <select> avec une option vide puis les valeurs fournies et l'active.
 function populateSelect(el, values) {
   el.innerHTML = '<option value="">—</option>' + values.map(v => `<option value="${v.replaceAll('"','&quot;')}">${v}</option>`).join('');
   el.disabled = false;
 }
 
+// Récupère depuis l'API les valeurs distinctes pour un niveau taxonomique donné en appliquant les filtres.
 async function fetchTaxValues(level, currentFilters) {
   const params = new URLSearchParams({ level });
   for (const k of levels) {
@@ -64,6 +69,7 @@ async function fetchTaxValues(level, currentFilters) {
   return Array.isArray(data.values) ? data.values : [];
 }
 
+// Charge les observations selon les filtres, met à jour les marqueurs sur la carte et gère le loader.
 async function updateMapForFilters(filters) {
   const params = new URLSearchParams({ limit: '1000' });
   for (const k of Object.keys(filters)) {
@@ -114,6 +120,7 @@ async function updateMapForFilters(filters) {
 
 // getCurrentYearFilter sera défini plus bas, après la déclaration des variables du panneau date
 
+// Gestionnaire appelé quand un sélecteur taxonomique change : met à jour les sélecteurs descendants et la carte.
 async function onTaxChange(levelChanged) {
   try {
     const filters = {};
@@ -145,6 +152,7 @@ async function onTaxChange(levelChanged) {
   }
 }
 
+// Initialise le panneau taxonomique (remplit kingdom, attache les événements, gère le bouton reset).
 async function initTaxonomyPanel() {
   showLoader();
   try {
@@ -192,6 +200,7 @@ const yearMaxLabel = document.getElementById('year-max-label');
 let yearBounds = { min: null, max: null };
 let yearFilterTouched = false;
 
+// Construit le filtre d'années à partir des sliders si l'utilisateur a interagi, sinon retourne vide.
 function getCurrentYearFilter() {
   // N'applique pas le filtre d'années tant que l'utilisateur n'a pas interagi
   if (!yearFilterTouched) return {};
@@ -204,6 +213,7 @@ function getCurrentYearFilter() {
   return { yearMin: String(lo), yearMax: String(hi) };
 }
 
+// Interroge l'API pour obtenir les bornes (min/max) des années en fonction des filtres fournis.
 async function fetchYearBounds(currentFilters) {
   // On récupère les bornes de l’attribut 'year' selon les filtres (ou globalement)
   const params = new URLSearchParams();
@@ -217,6 +227,7 @@ async function fetchYearBounds(currentFilters) {
   return data.values || [];
 }
 
+// Configure les sliders d'années (min/max/valeurs) et met à jour les étiquettes affichées.
 function setYearControls(minYear, maxYear) {
   if (!yearMinInput || !yearMaxInput) return;
   yearMinInput.min = String(minYear);
@@ -230,6 +241,7 @@ function setYearControls(minYear, maxYear) {
   yearBounds = { min: minYear, max: maxYear };
 }
 
+// Lit les sélecteurs taxonomiques et retourne un objet contenant les filtres actifs.
 function getCurrentTaxFilters() {
   const filters = {};
   for (const lvl of levels) {
@@ -239,6 +251,7 @@ function getCurrentTaxFilters() {
   return filters;
 }
 
+// Initialise le panneau des dates : récupère les bornes, configure les sliders et attache les événements.
 async function initDatePanel() {
   // Fallback simple: déterminer les bornes min/max depuis un échantillon si l’API year n’existe pas
   try {

@@ -1,77 +1,14 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const { MongoClient } = require('mongodb');
+const { connectToMongo, getCollection, closeMongo } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 
-// Utiliser l'URI de connexion depuis l'environnement (prioritaire), sinon la construire
-const dbName = process.env.MONGO_DB || process.env.MONGO_COLLECTION || "projet_bdd"; // Nom de la base
-const mongoUser = process.env.MONGO_USER;
-const mongoPass = process.env.MONGO_PASS;
-const mongoHost = process.env.MONGO_HOST || 'localhost';
-const mongoPort = process.env.MONGO_PORT || '27017';
-const authSource = process.env.MONGO_AUTH_SOURCE || 'admin';
-
-function buildMongoUri() {
-  if (process.env.MONGO_URI) return process.env.MONGO_URI;
-  if (mongoUser && mongoPass) {
-    const encodedPass = encodeURIComponent(mongoPass);
-    return `mongodb://${mongoUser}:${encodedPass}@${mongoHost}:${mongoPort}/${dbName}?authSource=${authSource}`;
-  }
-  return `mongodb://${mongoHost}:${mongoPort}`;
-}
-
-const url = buildMongoUri();
-let client;
-let collection;
-let reconnectTimer = null;
-let lastMongoError = null;
-
-async function connectToMongo(attempt = 1) {
-  const maxDelay = 30000;
-  const baseDelay = 3000;
-  const delay = Math.min(maxDelay, baseDelay * attempt);
-  try {
-    client = new MongoClient(url, {
-      directConnection: true,
-      connectTimeoutMS: 30000,
-      serverSelectionTimeoutMS: 30000,
-      // Pas de socketTimeout pour éviter d'interrompre les requêtes longues
-    });
-    await client.connect();
-    console.log("Connecté à MongoDB");
-    console.log(`URI: ${url.replace(/:\\?[^@]*@/, ':****@')} | DB: ${dbName}`);
-    const db = client.db(dbName);
-    collection = db.collection("faune&flore");
-
-    // Gérer les événements et tenter une reconnexion si nécessaire
-    client.on?.('close', () => {
-      console.warn('MongoDB: connexion fermée, tentative de reconnexion...');
-      scheduleReconnect();
-    });
-    client.on?.('error', (e) => {
-      console.error('MongoDB error:', e);
-      lastMongoError = e;
-    });
-  } catch (err) {
-    lastMongoError = err;
-    console.error("Erreur de connexion à MongoDB :", err);
-    scheduleReconnect(attempt + 1, delay);
-  }
-}
-
-function scheduleReconnect(nextAttempt = 2, wait = 3000) {
-  if (reconnectTimer) return; // éviter doublons
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    connectToMongo(nextAttempt);
-  }, wait);
-}
-
+// Démarrer la connexion Mongo en arrière-plan
 connectToMongo();
 
 // Mapping util to support multiple field names and cast to numbers
@@ -195,6 +132,7 @@ app.listen(PORT, () => {
 
 // Endpoint principal: renvoie des observations filtrées (et mappées) pour la carte
 app.get('/api/observations', async (req, res) => {
+  const collection = getCollection();
   if (!collection) {
     return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
   }
@@ -235,6 +173,7 @@ app.get('/api/observations', async (req, res) => {
 
 // Endpoint min/max pour l'attribut 'year' selon les filtres taxonomiques courants
 app.get('/api/years/minmax', async (req, res) => {
+  const collection = getCollection();
   if (!collection) {
     return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
   }
@@ -262,6 +201,7 @@ app.get('/api/years/minmax', async (req, res) => {
 
 // Endpoint pour récupérer les valeurs distinctes d'un niveau taxonomique, avec filtres amont (égalité stricte)
 app.get('/api/taxonomy/values', async (req, res) => {
+  const collection = getCollection();
   if (!collection) {
     return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
   }
@@ -300,7 +240,7 @@ app.get('/api/taxonomy/values', async (req, res) => {
 process.on('SIGINT', async () => {
   console.log('Arrêt du serveur...');
   try {
-    await client.close();
+    await closeMongo();
   } finally {
     process.exit(0);
   }
