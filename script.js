@@ -18,15 +18,32 @@ const map = L.map('map', {
 });
 L.control.layers({ 'OpenStreetMap': osm, 'Satellite': sat, 'Topographique': topo }).addTo(map);
 
-const markers = L.layerGroup().addTo(map);
+// ✅ featureGroup pour pouvoir utiliser getBounds()
+const markers = L.featureGroup().addTo(map);
+
 const statusDiv = document.getElementById('requete');
 const loadingOverlay = document.getElementById('loading-overlay');
+const btnCorr = document.getElementById('btn-correlation');
+
 // Affiche l'overlay de chargement en ajoutant la classe 'active'.
 const showLoader = () => loadingOverlay && loadingOverlay.classList.add('active');
 // Cache l'overlay de chargement en retirant la classe 'active'.
 const hideLoader = () => loadingOverlay && loadingOverlay.classList.remove('active');
-// Ne rien charger au démarrage tant qu'aucun filtre n'est sélectionné
+// Text status initial
 if (statusDiv) statusDiv.textContent = 'Sélectionnez un filtre taxonomique pour afficher la carte.';
+
+// Utilitaire : ajuste les bounds seulement si on a des couches
+function safeFitBounds(featureGroup, padding = 0.2) {
+  const layers = featureGroup.getLayers();
+  if (!layers || layers.length === 0) return false;
+  try {
+    map.fitBounds(featureGroup.getBounds().pad(padding));
+    return true;
+  } catch (e) {
+    console.warn('safeFitBounds erreur:', e);
+    return false;
+  }
+}
 
 // --------- Panneau taxonomique (sélection hiérarchique) ---------
 const selects = {
@@ -41,7 +58,6 @@ const selects = {
 };
 const levels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
 
-// Réinitialise et désactive tous les sélecteurs taxonomiques situés en dessous du niveau donné.
 function resetBelow(level) {
   const idx = levels.indexOf(level);
   for (let i = idx + 1; i < levels.length; i++) {
@@ -52,27 +68,26 @@ function resetBelow(level) {
   }
 }
 
-// Remplit un <select> avec une option vide puis les valeurs fournies et l'active.
 function populateSelect(el, values) {
-  el.innerHTML = '<option value="">—</option>' + values.map(v => `<option value="${v.replaceAll('"','&quot;')}">${v}</option>`).join('');
+  if (!el) return;
+  el.innerHTML = '<option value="">—</option>' + values.map(v => `<option value="${String(v).replaceAll('"','&quot;')}">${v}</option>`).join('');
   el.disabled = false;
 }
 
-// Récupère depuis l'API les valeurs distinctes pour un niveau taxonomique donné en appliquant les filtres.
 async function fetchTaxValues(level, currentFilters) {
   const params = new URLSearchParams({ level });
   for (const k of levels) {
-    if (currentFilters[k]) params.set(k, currentFilters[k]);
+    if (currentFilters && currentFilters[k]) params.set(k, currentFilters[k]);
   }
   const resp = await fetch('/api/taxonomy/values?' + params.toString());
+  if (!resp.ok) throw new Error(`tax values HTTP ${resp.status}`);
   const data = await resp.json();
   return Array.isArray(data.values) ? data.values : [];
 }
 
-// Charge les observations selon les filtres, met à jour les marqueurs sur la carte et gère le loader.
 async function updateMapForFilters(filters) {
   const params = new URLSearchParams({ limit: '1000' });
-  for (const k of Object.keys(filters)) {
+  for (const k of Object.keys(filters || {})) {
     if (filters[k] !== undefined && filters[k] !== null && filters[k] !== '') params.set(k, filters[k]);
   }
   showLoader();
@@ -98,13 +113,12 @@ async function updateMapForFilters(filters) {
             fillColor: '#3fa7ff',
             fillOpacity: 0.7
           }).addTo(markers)
-            .bindPopup(`Lat: ${lat}, Lng: ${lng}<br>${obs.scientificName}<br>${obs.locality || ''}`);
+            .bindPopup(`Lat: ${lat}, Lng: ${lng}<br>${obs.scientificName || ''}<br>${obs.locality || ''}`);
         }
       });
       const all = markers.getLayers();
       if (all.length > 0) {
-        const group = L.featureGroup(all);
-        map.fitBounds(group.getBounds().pad(0.2));
+        safeFitBounds(markers, 0.2);
       }
       if (statusDiv) statusDiv.textContent = `${all.length} observations affichées`;
     } else {
@@ -118,8 +132,6 @@ async function updateMapForFilters(filters) {
   }
 }
 
-// getCurrentYearFilter sera défini plus bas, après la déclaration des variables du panneau date
-
 // Gestionnaire appelé quand un sélecteur taxonomique change : met à jour les sélecteurs descendants et la carte.
 async function onTaxChange(levelChanged) {
   try {
@@ -131,7 +143,6 @@ async function onTaxChange(levelChanged) {
     }
     resetBelow(levelChanged);
 
-    // Charger les options du niveau suivant
     const idx = levels.indexOf(levelChanged);
     if (idx >= 0 && idx < levels.length - 1) {
       const next = levels[idx + 1];
@@ -139,26 +150,22 @@ async function onTaxChange(levelChanged) {
       if (values.length) populateSelect(selects[next], values);
     }
 
-    // Si scientificName est choisi, afficher uniquement ce nom
     if (selects.scientificName && selects.scientificName.value) {
       await updateMapForFilters({ scientificName: selects.scientificName.value, ...getCurrentYearFilter() });
       return;
     }
 
-    // Sinon, afficher avec les filtres partiels (ex: genus)
     await updateMapForFilters({ ...filters, ...getCurrentYearFilter() });
   } catch (e) {
     console.error('Erreur filtre taxonomique:', e);
   }
 }
 
-// Initialise le panneau taxonomique (remplit kingdom, attache les événements, gère le bouton reset).
 async function initTaxonomyPanel() {
   showLoader();
   try {
     const kingdoms = await fetchTaxValues('kingdom', {});
     if (kingdoms.length) populateSelect(selects.kingdom, kingdoms);
-    // Ecouteurs
     for (const lvl of levels) {
       const el = selects[lvl];
       if (!el) continue;
@@ -173,7 +180,6 @@ async function initTaxonomyPanel() {
           el.value = '';
         }
         resetBelow('kingdom');
-        // Réinitialiser le filtre d'années
         if (typeof yearFilterTouched !== 'undefined') yearFilterTouched = false;
         if (yearMinInput && yearMaxInput && yearBounds.min !== null && yearBounds.max !== null) {
           yearMinInput.value = String(yearBounds.min);
@@ -200,9 +206,7 @@ const yearMaxLabel = document.getElementById('year-max-label');
 let yearBounds = { min: null, max: null };
 let yearFilterTouched = false;
 
-// Construit le filtre d'années à partir des sliders si l'utilisateur a interagi, sinon retourne vide.
 function getCurrentYearFilter() {
-  // N'applique pas le filtre d'années tant que l'utilisateur n'a pas interagi
   if (!yearFilterTouched) return {};
   if (!yearMinInput || !yearMaxInput) return {};
   const yMin = Number(yearMinInput.value);
@@ -213,21 +217,17 @@ function getCurrentYearFilter() {
   return { yearMin: String(lo), yearMax: String(hi) };
 }
 
-// Interroge l'API pour obtenir les bornes (min/max) des années en fonction des filtres fournis.
 async function fetchYearBounds(currentFilters) {
-  // On récupère les bornes de l’attribut 'year' selon les filtres (ou globalement)
   const params = new URLSearchParams();
-  const levels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
-  for (const k of levels) {
+  const lvls = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
+  for (const k of lvls) {
     if (currentFilters?.[k]) params.set(k, currentFilters[k]);
   }
   const resp = await fetch('/api/taxonomy/values?level=year&' + params.toString());
   const data = await resp.json();
-  // Si l’API ne supporte pas encore level=year, on basculera sur une approche fallback ci-dessous
   return data.values || [];
 }
 
-// Configure les sliders d'années (min/max/valeurs) et met à jour les étiquettes affichées.
 function setYearControls(minYear, maxYear) {
   if (!yearMinInput || !yearMaxInput) return;
   yearMinInput.min = String(minYear);
@@ -241,7 +241,6 @@ function setYearControls(minYear, maxYear) {
   yearBounds = { min: minYear, max: maxYear };
 }
 
-// Lit les sélecteurs taxonomiques et retourne un objet contenant les filtres actifs.
 function getCurrentTaxFilters() {
   const filters = {};
   for (const lvl of levels) {
@@ -251,9 +250,7 @@ function getCurrentTaxFilters() {
   return filters;
 }
 
-// Initialise le panneau des dates : récupère les bornes, configure les sliders et attache les événements.
 async function initDatePanel() {
-  // Fallback simple: déterminer les bornes min/max depuis un échantillon si l’API year n’existe pas
   try {
     const filters = getCurrentTaxFilters();
     const params = new URLSearchParams(filters);
@@ -269,13 +266,11 @@ async function initDatePanel() {
     setYearControls(now - 50, now);
   }
 
-  // Mise à jour des labels en direct pendant le glissé
   const onInput = (e) => {
     if (!yearMinInput || !yearMaxInput) return;
     let yMin = Number(yearMinInput.value);
     let yMax = Number(yearMaxInput.value);
     if (yMin > yMax) {
-      // maintenir un intervalle valide pendant le drag
       if (e && e.target === yearMinInput) yMax = yMin; else yMin = yMax;
       yearMinInput.value = String(yMin);
       yearMaxInput.value = String(yMax);
@@ -284,7 +279,6 @@ async function initDatePanel() {
     if (yearMaxLabel) yearMaxLabel.textContent = String(yMax);
   };
 
-  // Déclencher la requête uniquement au relâchement du slider
   const onChange = async () => {
     if (!yearMinInput || !yearMaxInput) return;
     yearFilterTouched = true;
@@ -309,6 +303,65 @@ async function initDatePanel() {
     yearMaxInput.addEventListener('input', onInput);
     yearMaxInput.addEventListener('change', onChange);
   }
+}
+
+// ----- Corrélation latitude-diversité -----
+async function showLatitudeDiversityCorrelation() {
+  showLoader();
+  try {
+    const resp = await fetch('/api/correlation/latitude-diversite');
+    if (!resp.ok) throw new Error('Erreur HTTP');
+    const data = await resp.json();
+    if (!Array.isArray(data.correlation)) throw new Error('Format invalide');
+
+    markers.clearLayers();
+
+    data.correlation.forEach(d => {
+      if (typeof d.latitude !== 'number' || typeof d.diversite !== 'number') return;
+
+      // Limiter les latitudes au Brésil (~-34 à 5)
+      const lat = Math.max(-34, Math.min(5, d.latitude));
+
+      // Longitude approximative pour le Brésil (~-74 à -34) avec dispersion
+      const lng = Math.max(-74, Math.min(-34, -55 + (Math.random() - 0.5) * 10));
+
+      const diversite = d.diversite;
+
+      // Couleur selon le niveau de diversité
+      const color =
+        diversite > 1000 ? '#ff0000' :
+        diversite > 500  ? '#ff7f00' :
+        diversite > 100  ? '#ffff00' :
+                          '#00ff00';
+
+      L.circleMarker([lat, lng], {
+        radius: Math.max(3, Math.min(10, diversite / 10)),
+        color,
+        fillColor: color,
+        fillOpacity: 0.6
+      })
+      .addTo(markers)
+      .bindPopup(`Latitude ~${lat}°<br>Diversité: ${diversite}`);
+    });
+
+    const all = markers.getLayers();
+    if (all.length > 0) {
+      const group = L.featureGroup(all);
+      map.fitBounds(group.getBounds().pad(0.3));
+      if (statusDiv) statusDiv.textContent = 'Corrélation latitude-diversité affichée';
+    } else {
+      if (statusDiv) statusDiv.textContent = 'Aucune donnée de corrélation disponible';
+    }
+  } catch (err) {
+    console.error('Erreur corrélation:', err);
+    if (statusDiv) statusDiv.textContent = 'Erreur corrélation latitude-diversité';
+  } finally {
+    hideLoader();
+  }
+}
+
+if (btnCorr) {
+  btnCorr.addEventListener('click', showLatitudeDiversityCorrelation);
 }
 
 // Initialiser panneaux

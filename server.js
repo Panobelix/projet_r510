@@ -236,6 +236,55 @@ app.get('/api/taxonomy/values', async (req, res) => {
   }
 });
 
+
+// Endpoint : corrélation latitude-diversité
+app.get('/api/correlation/latitude-diversite', async (req, res) => {
+  const collection = getCollection();
+  if (!collection) {
+    return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
+  }
+
+  try {
+    const SAMPLE_SIZE = 200000; 
+    const BINSIZE = 5;
+
+    const pipeline = [
+      { $sample: { size: SAMPLE_SIZE } },
+      { $project: { latitude: '$decimalLatitude', name: '$scientificName' } },
+      { $match: { latitude: { $type: 'number' }, name: { $exists: true, $ne: '' } } },
+      {
+        $project: {
+          latBin: { $multiply: [{ $floor: { $divide: ['$latitude', BINSIZE] } }, BINSIZE] },
+          name: 1
+        }
+      },
+      {
+        $group: {
+          _id: '$latBin',
+          species: { $addToSet: '$name' }
+        }
+      },
+      {
+        $project: {
+          latitude: '$_id',
+          diversite: { $size: '$species' },
+          _id: 0
+        }
+      },
+      { $sort: { latitude: 1 } }
+    ];
+
+    const cursor = collection.aggregate(pipeline, { allowDiskUse: true });
+    const data = await cursor.toArray();
+    res.json({ correlation: data, sampled: SAMPLE_SIZE });
+  } catch (err) {
+    console.error('Erreur /api/correlation/latitude-diversite :', err);
+    res.status(500).send('Erreur lors du calcul de la corrélation latitude-diversité.');
+  }
+});
+
+
+
 // Fermeture propre
 process.on('SIGINT', async () => {
   console.log('Arrêt du serveur...');
