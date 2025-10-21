@@ -2,8 +2,11 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Carte OpenStreetMap interactive</title>
+    <title>Suivi de la biodiversité brésillienne</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
         <link rel="stylesheet" href="styles.css">
@@ -14,10 +17,13 @@
 <body>
     <div id="requete"></div>
     <div id="map"></div>
+    <!-- Titre centré en haut -->
+    <div id="title-panel" class="title-panel" aria-hidden="false">Suivi de la biodiversité brésillienne</div>
     <!-- Overlay de chargement -->
     <div id="loading-overlay" aria-hidden="true">
         <div class="spinner"></div>
         <div class="loading-text">Chargement…</div>
+        <button id="btn-cancel-requests" type="button" class="cancel-btn" aria-label="Annuler la requête en cours">Annuler</button>
     </div>
     <!-- Panneau espèces / taxonomie -->
     <div id="species-panel">
@@ -36,18 +42,111 @@
             </div>
         </div>
     </div>
-
+    
     <!-- Panneau dates (en bas à droite) -->
+    <!-- Panneau documents (doit être au-dessus de taxonomie) -->
+    <div id="limit-panel" class="limit-panel">
+        <div class="limit-header">Documents</div>
+        <div class="limit-controls">
+            <div class="limit-row single">
+                <label>Nombre: <span id="doc-limit-label">500</span></label>
+                <div class="range-single">
+                    <input id="doc-limit" type="range" min="100" max="20000" step="100" value="500" />
+                </div>
+            </div>
+            <div class="limit-row sort">
+                <label>Trier</label>
+                <div class="sort-buttons" role="group" aria-label="Tri des observations">
+                    <button class="sort-btn" data-sort="natural:asc" aria-label="Ordre croissant" title="Ordre croissant">
+                        <span class="icon icon-up" aria-hidden="true"></span><span class="btn-text">Asc</span>
+                    </button>
+                    <button class="sort-btn" data-sort="natural:desc" aria-label="Ordre décroissant" title="Ordre décroissant">
+                        <span class="icon icon-down" aria-hidden="true"></span><span class="btn-text">Desc</span>
+                    </button>
+                    <button class="sort-btn" data-sort="decimalLongitude:asc" aria-label="Longitude croissante" title="Longitude croissante">
+                        <span class="icon icon-right" aria-hidden="true"></span><span class="btn-text">Lon</span>
+                    </button>
+                    <button class="sort-btn" data-sort="decimalLongitude:desc" aria-label="Longitude décroissante" title="Longitude décroissante">
+                        <span class="icon icon-left" aria-hidden="true"></span><span class="btn-text">Lon</span>
+                    </button>
+                    <button class="sort-btn" data-sort="decimalLatitude:asc" aria-label="Latitude croissante" title="Latitude croissante">
+                        <span class="icon icon-up" aria-hidden="true"></span><span class="btn-text">Lat</span>
+                    </button>
+                    <button class="sort-btn" data-sort="decimalLatitude:desc" aria-label="Latitude décroissante" title="Latitude décroissante">
+                        <span class="icon icon-down" aria-hidden="true"></span><span class="btn-text">Lat</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Panneau dates (doit être au-dessus du panneau documents) -->
     <div id="date-panel" class="date-panel">
         <div class="date-header">Période</div>
         <div class="date-controls">
-            <div class="date-row">
-                <label>De: <span id="year-min-label">—</span></label>
-                <input id="year-min" type="range" min="0" max="0" value="0" />
+            <div class="date-row dual">
+                <label>Période: <span id="year-min-label">—</span> — <span id="year-max-label">—</span></label>
+                <div class="range-dual">
+                    <input id="year-min" type="range" min="0" max="0" value="0" />
+                    <input id="year-max" type="range" min="0" max="0" value="0" />
+                </div>
             </div>
-            <div class="date-row">
-                <label>À: <span id="year-max-label">—</span></label>
-                <input id="year-max" type="range" min="0" max="0" value="0" />
+        </div>
+    </div>
+
+    <!-- Panneau filtres (droit, étroit et haut) -->
+    <div id="filter-panel" class="filter-panel" aria-label="Filtres rapides">
+        <div class="filter-header">Filtres</div>
+        <div class="filter-buttons" role="group" aria-label="Boutons de filtre">
+            <button class="filter-btn" aria-label="Filtre 1" title="Filtre 1" data-filter="f1"></button>
+            <button class="filter-btn" aria-label="Filtre 2" title="Filtre 2" data-filter="f2"></button>
+            <button class="filter-btn" aria-label="Filtre 3" title="Filtre 3" data-filter="f3"></button>
+            <button class="filter-btn" aria-label="Filtre 4" title="Filtre 4" data-filter="f4"></button>
+        </div>
+    </div>
+
+    <!-- Panneau d'ajout (en bas à droite) -->
+    <div id="add-panel" class="add-panel" role="button" tabindex="0" aria-label="Ajouter un document" title="Ajouter un document">
+        <span class="add-text">Ajouter un document</span>
+        <span class="add-icon" aria-hidden="true"></span>
+    </div>
+
+    <!-- Modal d'ajout de document -->
+    <div id="add-modal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="add-modal-title">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="add-modal-title">Ajouter un document</h3>
+                <button type="button" class="modal-close" id="btn-add-close" aria-label="Fermer">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="add-form">
+                    <div class="form-grid">
+                        <label>kingdom<input name="kingdom" required /></label>
+                        <label>phylum<input name="phylum" required /></label>
+                        <label>class<input name="class" required /></label>
+                        <label>order<input name="order" required /></label>
+                        <label>family<input name="family" required /></label>
+                        <label>genus<input name="genus" required /></label>
+                        <label>species<input name="species" required /></label>
+                        <label>infraspecificEpithet<input name="infraspecificEpithet" required /></label>
+                        <label>taxonRank<input name="taxonRank" required /></label>
+                        <label>scientificName<input name="scientificName" required /></label>
+                        <label>verbatimScientificName<input name="verbatimScientificName" required /></label>
+                        <label>countryCode<input name="countryCode" required /></label>
+                        <label>occurrenceStatus<input name="occurrenceStatus" required /></label>
+                        <label>decimalLatitude<input name="decimalLatitude" required /></label>
+                        <label>decimalLongitude<input name="decimalLongitude" required /></label>
+                    </div>
+                    <div class="form-extra">
+                        <div class="extra-header">Champs optionnels</div>
+                        <div id="extra-list" class="extra-list"></div>
+                        <button id="btn-extra-add" type="button" class="extra-add">+ Ajouter un champ</button>
+                    </div>
+                    <div class="form-actions">
+                        <button id="btn-add-submit" type="submit" class="primary">Créer</button>
+                        <button id="btn-add-cancel" type="button" class="secondary">Annuler</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
