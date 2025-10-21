@@ -1,77 +1,3 @@
-/* Beau panneau de filtres à droite */
-.filter-panel {
-    position: fixed;
-    right: 12px;
-    top: 12px;
-    width: 72px;            /* étroit */
-    height: 320px;          /* assez haut */
-    background: rgba(24, 28, 35, 0.75);
-    border: 1px solid rgba(0, 0, 0, 0.3);
-    box-shadow: 0 6px 24px rgba(0,0,0,0.25);
-    backdrop-filter: blur(4px);
-    color: #fff;
-    z-index: 2000;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-}
-
-.filter-header {
-    font-weight: 600;
-    font-size: 13px;
-    text-align: center;
-    padding: 8px 6px;
-    border-bottom: 1px solid rgba(255,255,255,0.12);
-    letter-spacing: .3px;
-}
-
-.filter-buttons {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: space-evenly;
-    padding: 10px 0;
-    gap: 10px;
-}
-
-.filter-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.25);
-    background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.06));
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 8px rgba(0,0,0,0.25);
-    cursor: pointer;
-    transition: transform .08s ease, background .2s ease, border-color .2s ease;
-}
-.filter-btn:hover { transform: translateY(-1px); border-color: #fff; }
-.filter-btn:active { transform: translateY(0); }
-.filter-btn:focus-visible { outline: 2px solid #7cc0ff; outline-offset: 2px; }
-.filter-btn.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.25), inset 0 1px 0 rgba(255,255,255,0.45); }
-
-/* variantes de couleur pour donner un repère visuel */
-.filter-btn[data-filter="f1"] { background: linear-gradient(180deg, #7cc0ff66, #2571ff44); }
-.filter-btn[data-filter="f2"] { background: linear-gradient(180deg, #7cffd466, #00b89444); }
-.filter-btn[data-filter="f3"] { background: linear-gradient(180deg, #ffd37c66, #ff8f2544); }
-.filter-btn[data-filter="f4"] { background: linear-gradient(180deg, #ff7ccc66, #ff257144); }
-
-.quick-filter-btn {
-    width: 32px;
-    height: 32px;
-    background: rgba(255,255,255,0.18);
-    border: 2px solid rgba(255,255,255,0.35);
-    border-radius: 8px;
-    margin: 0;
-    padding: 0;
-    cursor: pointer;
-    transition: background 0.2s, border 0.2s;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-}
-.quick-filter-btn:hover {
-    background: rgba(255,255,255,0.32);
-    border-color: #fff;
-}
 html, body, #map {
     height: 100%;
     margin: 0;
@@ -92,14 +18,13 @@ html, body, #map {
     bottom: 12px;
     width: 280px;
     max-height: 40vh;
-    background: rgba(24, 28, 35, 0.75);
-    border: 1px solid rgba(0, 0, 0, 0.3);
+    background: rgba(128, 128, 128, 0.6); /* gris 60% de transparence */
     color: #fff;
+    border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     overflow: hidden;
     backdrop-filter: blur(2px);
     z-index: 1000;
-    padding: 10px;
 }
 
 .species-header {
@@ -186,26 +111,12 @@ html, body, #map {
     border-top-color: #ffffff;
     border-radius: 50%;
     animation: spin 1s linear infinite;
-    pointer-events: none; /* ne bloque pas les clics vers le bouton */
 }
 
 #loading-overlay .loading-text {
     color: #fff;
     margin-top: 12px;
     font-weight: 600;
-}
-
-#loading-overlay .cancel-btn {
-    margin-top: 10px;
-    background: #c62828;
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.3);
-    border-radius: 6px;
-    padding: 6px 12px;
-    cursor: pointer;
-}
-#loading-overlay .cancel-btn:hover {
-    background: #b71c1c;
 }
 
 @keyframes spin {
@@ -217,63 +128,14 @@ html, body, #map {
 }
 
 /* Panneau des dates en bas à droite */
-.limit-panel {
-    position: fixed;
-    right: 12px;
-    /* sera positionné dynamiquement juste au-dessus du date-panel */
-    width: 260px;
-    background: rgba(24, 28, 35, 0.75);
-    border: 1px solid rgba(0, 0, 0, 0.3);
-    color: #fff;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    overflow: hidden;
-    backdrop-filter: blur(2px);
-    z-index: 1000;
-}
-.limit-header {
-    font-weight: 600;
-    padding: 8px 10px;
-    border-bottom: 1px solid rgba(255,255,255,0.2);
-}
-.limit-controls { padding: 8px 10px; }
-.limit-row { display: grid; grid-template-columns: 1fr; gap: 6px; }
-.limit-row label { font-size: 12px; }
-
-/* Slider simple (une poignée) avec piste bleue/rouge dynamique */
-.range-single { position: relative; height: 28px; --value-pct: 0%; --active-color: #2f80ff; }
-.range-single::before { /* piste grise */
-    content: '';
-    position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
-    height: 6px; background: rgba(255,255,255,0.35); border-radius: 4px; pointer-events: none;
-}
-.range-single::after { /* segment actif */
-    content: '';
-    position: absolute; left: 0; width: var(--value-pct);
-    top: 50%; transform: translateY(-50%);
-    height: 6px; background: var(--active-color); border-radius: 4px; pointer-events: none;
-}
-.range-single input[type="range"] {
-    position: absolute; inset: 0; width: 100%; height: 28px;
-    pointer-events: auto; appearance: none; -webkit-appearance: none; background: none; z-index: 2;
-}
-.range-single input[type="range"]::-webkit-slider-thumb {
-    pointer-events: auto; -webkit-appearance: none; height: 16px; width: 16px;
-    background: #fff; border-radius: 50%; border: 2px solid #111;
-}
-.range-single input[type="range"]::-moz-range-thumb {
-    pointer-events: auto; height: 16px; width: 16px; background: #fff; border-radius: 50%; border: 2px solid #111;
-}
-.range-single input[type="range"]::-webkit-slider-runnable-track { height: 6px; background: transparent; border-radius: 4px; }
-.range-single input[type="range"]::-moz-range-track { height: 6px; background: transparent; border-radius: 4px; }
-
 .date-panel {
     position: fixed;
     right: 12px;
     bottom: 12px;
     width: 260px;
-    background: rgba(24, 28, 35, 0.75);
-    border: 1px solid rgba(0, 0, 0, 0.3);
+    background: rgba(128, 128, 128, 0.6);
     color: #fff;
+    border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     overflow: hidden;
     backdrop-filter: blur(2px);
@@ -298,122 +160,5 @@ html, body, #map {
 }
 .date-row input[type="range"] {
     width: 100%;
-}
-
-/* Slider double (deux poignées) présenté comme un seul contrôle */
-.date-row.dual {
-    gap: 10px;
-}
-.range-dual {
-    position: relative;
-    height: 28px;
-}
-.range-dual::before {
-    /* piste grise de fond */
-    content: '';
-    position: absolute;
-    left: 0; right: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    height: 6px;
-    background: rgba(255,255,255,0.35);
-    border-radius: 4px;
-    pointer-events: none;
-}
-.range-dual::after {
-    /* segment actif (entre min et max) en bleu */
-    content: '';
-    position: absolute;
-    left: var(--min-pct, 0%);
-    right: calc(100% - var(--max-pct, 100%));
-    top: 50%;
-    transform: translateY(-50%);
-    height: 6px;
-    background: #2f80ff; /* bleu */
-    border-radius: 4px;
-    pointer-events: none;
-}
-.range-dual input[type="range"] {
-    position: absolute;
-    left: 0; right: 0;
-    top: 0; bottom: 0;            /* occupe toute la hauteur du conteneur */
-    width: 100%; height: 28px;    /* même hauteur que le conteneur pour centrer verticalement */
-    pointer-events: none; /* superpose les sliders, active seulement le pouce */
-    appearance: none;
-    -webkit-appearance: none;
-    background: none;
-    z-index: 2; /* laisser la piste dessous, les pouces au-dessus */
-}
-.range-dual input[type="range"]::-webkit-slider-thumb {
-    pointer-events: auto;
-    -webkit-appearance: none;
-    height: 16px; width: 16px;
-    background: #fff; border-radius: 50%; border: 2px solid #111;
-}
-.range-dual input[type="range"]::-moz-range-thumb {
-    pointer-events: auto;
-    height: 16px; width: 16px;
-    background: #fff; border-radius: 50%; border: 2px solid #111;
-}
-.range-dual input[type="range"]::-webkit-slider-runnable-track {
-    height: 6px; background: transparent; border-radius: 4px;
-}
-.range-dual input[type="range"]::-moz-range-track {
-    height: 6px; background: transparent; border-radius: 4px;
-}
-
-/* ---- Thème noir pour les contrôles Leaflet (zoom + calques) ---- */
-/* Barres et boutons */
-.leaflet-bar a,
-.leaflet-bar a:hover,
-.leaflet-control-zoom a {
-    background: #111 !important;
-    color: #fff !important;
-    border-color: rgba(255,255,255,0.25) !important;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-}
-.leaflet-bar a:hover { background: #1a1a1a !important; }
-.leaflet-bar a:focus-visible { outline: 2px solid #7cc0ff; outline-offset: 2px; }
-
-/* Contrôle calques (toggle + panneau) */
-.leaflet-control-layers {
-    background: #111 !important;
-    color: #fff !important;
-    border: 1px solid rgba(255,255,255,0.25) !important;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.35);
-}
-.leaflet-control-layers-expanded {
-    background: #111 !important;
-    color: #fff !important;
-}
-.leaflet-control-layers-list,
-.leaflet-control-layers-base,
-.leaflet-control-layers-overlays {
-    color: #fff !important;
-}
-.leaflet-control-layers-separator {
-    border-top: 1px solid rgba(255,255,255,0.25) !important;
-}
-.leaflet-control-layers label { color: #fff !important; }
-
-/* Icône du bouton calques: inverser pour être visible sur fond noir */
-.leaflet-control-layers-toggle {
-    position: relative;
-    background-color: #111 !important;
-    border: 1px solid rgba(255,255,255,0.25) !important;
-    border-radius: 4px;
-    background-image: none !important; /* on supprime l'icône d'origine */
-}
-.leaflet-control-layers-toggle::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-color: #ffffff; /* couleur de l'icône */
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3L3 9l9 6 9-6-9-6zm0 8.5L3 7v3l9 5.5L21 10V7l-9 4.5zm0 6L3 13v3l9 5 9-5v-3l-9 4.5z'/%3E%3C/svg%3E");
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3L3 9l9 6 9-6-9-6zm0 8.5L3 7v3l9 5.5L21 10V7l-9 4.5zm0 6L3 13v3l9 5 9-5v-3l-9 4.5z'/%3E%3C/svg%3E");
-    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-    -webkit-mask-position: center; mask-position: center;
-    -webkit-mask-size: 18px 18px; mask-size: 18px 18px; /* icône plus nette */
-    pointer-events: none;
 }
 

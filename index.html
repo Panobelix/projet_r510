@@ -18,7 +18,6 @@
     <div id="loading-overlay" aria-hidden="true">
         <div class="spinner"></div>
         <div class="loading-text">Chargement…</div>
-        <button id="btn-cancel-requests" type="button" class="cancel-btn" aria-label="Annuler la requête en cours">Annuler</button>
     </div>
     <!-- Panneau espèces / taxonomie -->
     <div id="species-panel">
@@ -37,43 +36,19 @@
             </div>
         </div>
     </div>
-    
-    <!-- Panneau dates (en bas à droite) -->
-    <!-- Panneau documents (au-dessus du panneau dates) -->
-    <div id="limit-panel" class="limit-panel">
-        <div class="limit-header">Documents</div>
-        <div class="limit-controls">
-            <div class="limit-row single">
-                <label>Nombre: <span id="doc-limit-label">500</span></label>
-                <div class="range-single">
-                    <input id="doc-limit" type="range" min="100" max="20000" step="100" value="500" />
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- Panneau dates (en bas à droite) -->
     <div id="date-panel" class="date-panel">
         <div class="date-header">Période</div>
         <div class="date-controls">
-            <div class="date-row dual">
-                <label>Période: <span id="year-min-label">—</span> — <span id="year-max-label">—</span></label>
-                <div class="range-dual">
-                    <input id="year-min" type="range" min="0" max="0" value="0" />
-                    <input id="year-max" type="range" min="0" max="0" value="0" />
-                </div>
+            <div class="date-row">
+                <label>De: <span id="year-min-label">—</span></label>
+                <input id="year-min" type="range" min="0" max="0" value="0" />
             </div>
-        </div>
-    </div>
-
-    <!-- Panneau filtres (droit, étroit et haut) -->
-    <div id="filter-panel" class="filter-panel" aria-label="Filtres rapides">
-        <div class="filter-header">Filtres</div>
-        <div class="filter-buttons" role="group" aria-label="Boutons de filtre">
-            <button class="filter-btn" aria-label="Filtre 1" title="Filtre 1" data-filter="f1"></button>
-            <button class="filter-btn" aria-label="Filtre 2" title="Filtre 2" data-filter="f2"></button>
-            <button class="filter-btn" aria-label="Filtre 3" title="Filtre 3" data-filter="f3"></button>
-            <button class="filter-btn" aria-label="Filtre 4" title="Filtre 4" data-filter="f4"></button>
+            <div class="date-row">
+                <label>À: <span id="year-max-label">—</span></label>
+                <input id="year-max" type="range" min="0" max="0" value="0" />
+            </div>
         </div>
     </div>
     <script src="/script.js"></script>
