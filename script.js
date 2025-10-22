@@ -940,3 +940,63 @@ function updateMarkerVisibilityForFilters() {
     }
   });
 })();
+
+
+
+// ----- Corrélation latitude-diversité -----
+async function showLatitudeDiversityCorrelation() {
+  showLoader();
+  try {
+    // Use mock data for testing
+    const mockData = {
+      correlation: Array.from({ length: 40 }, (_, i) => ({
+        latitude: -34 + (39 * i / 39), // From -34 to 5
+        diversite: Math.floor(Math.random() * 2000) // Random diversity 0-2000
+      }))
+    };
+
+    markers.clearLayers();
+
+    mockData.correlation.forEach(d => {
+      if (typeof d.latitude !== 'number' || typeof d.diversite !== 'number') return;
+
+      // Limiter les latitudes au Brésil (~-34 à 5)
+      const lat = Math.max(-34, Math.min(5, d.latitude));
+
+      // Longitude approximative pour le Brésil (~-74 à -34) avec dispersion
+      const lng = Math.max(-74, Math.min(-34, -55 + (Math.random() - 0.5) * 10));
+
+      const diversite = d.diversite;
+
+      // Couleur selon le niveau de diversité
+      const color =
+        diversite > 1000 ? '#ff0000' :
+        diversite > 500  ? '#ff7f00' :
+        diversite > 100  ? '#ffff00' :
+                          '#00ff00';
+
+      L.circleMarker([lat, lng], {
+        radius: Math.max(3, Math.min(10, diversite / 10)),
+        color,
+        fillColor: color,
+        fillOpacity: 0.6
+      })
+      .addTo(markers)
+      .bindPopup(`Latitude ~${lat}°<br>Diversité: ${diversite}`);
+    });
+
+    const all = markers.getLayers();
+    if (all.length > 0) {
+      const group = L.featureGroup(all);
+      map.fitBounds(group.getBounds().pad(0.3));
+      if (statusDiv) statusDiv.textContent = 'Corrélation latitude-diversité affichée';
+    } else {
+      if (statusDiv) statusDiv.textContent = 'Aucune donnée de corrélation disponible';
+    }
+  } catch (err) {
+    console.error('Erreur corrélation:', err);
+    if (statusDiv) statusDiv.textContent = 'Erreur corrélation latitude-diversité';
+  } finally {
+    hideLoader();
+  }
+}
