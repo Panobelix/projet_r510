@@ -24,6 +24,8 @@ const markers = L.layerGroup().addTo(map);
 const statusDiv = document.getElementById('requete');
 const loadingOverlay = document.getElementById('loading-overlay');
 const cancelBtn = document.getElementById('btn-cancel-requests');
+const toastContainer = document.getElementById('toast-container');
+let lastLargeWarn = 0; // throttle pour l'alerte >10k
 // Affiche/Cache l'overlay de chargement
 let cancelRequested = false;
 const showLoader = () => {
@@ -33,6 +35,22 @@ const showLoader = () => {
 const hideLoader = () => {
   if (loadingOverlay) loadingOverlay.classList.remove('active');
 };
+
+// Toasts non bloquants, style app
+function showToast(message, type = 'info', timeoutMs = 4000) {
+  if (!toastContainer) { try { alert(message); } catch {} return; }
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `
+    <span class="toast-text">${escapeHtml(message)}</span>
+    <button class="toast-close" title="Fermer">×</button>
+  `;
+  const btn = el.querySelector('.toast-close');
+  btn?.addEventListener('click', () => el.remove());
+  toastContainer.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  if (timeoutMs > 0) setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 250); }, timeoutMs);
+}
 
 // Gestion d'annulation des requêtes via AbortController
 const activeControllers = new Set();
@@ -68,36 +86,68 @@ if (statusDiv) statusDiv.textContent = 'Sélectionnez un filtre taxonomique pour
 const docLimitInput = document.getElementById('doc-limit');
 const docLimitLabel = document.getElementById('doc-limit-label');
 const rangeSingleEl = document.querySelector('.range-single');
-let docLimit = 500; // défaut au lancement
-let sortState = { field: 'natural', dir: 'asc' }; // tri par défaut
+
+// Mapping exponentiel: valeur slider [0..SLIDER_MAX] -> [DOC_MIN..DOC_MAX]
+const DOC_MIN = 100;
+const DOC_MAX = 35000000;
+const SLIDER_MAX = 1000;
+let docLimit = 500; // défaut au lancement (valeur mappée)
+
+function sliderToLimit(val) {
+  const s = Math.max(0, Math.min(Number(val) || 0, SLIDER_MAX)) / SLIDER_MAX; // [0..1]
+  const ratio = DOC_MAX / DOC_MIN;
+  const mapped = Math.floor(DOC_MIN * Math.pow(ratio, s));
+  return Math.max(DOC_MIN, Math.min(mapped, DOC_MAX));
+}
+function limitToSlider(limit) {
+  const clamped = Math.max(DOC_MIN, Math.min(Number(limit) || DOC_MIN, DOC_MAX));
+  const ratio = DOC_MAX / DOC_MIN;
+  const s = Math.log(clamped / DOC_MIN) / Math.log(ratio); // [0..1]
+  return Math.round(s * SLIDER_MAX);
+}
+let sortState = { field: '_id', dir: 'asc' }; // tri par défaut (ID croissant)
 
 function getDocLimit() { return docLimit; }
 
+function fmt(n) {
+  try { return Number(n).toLocaleString('fr-FR'); } catch { return String(n); }
+}
+
 function updateDocLimitTrack() {
   if (!rangeSingleEl || !docLimitInput) return;
-  const min = Number(docLimitInput.min) || 0;
-  const max = Number(docLimitInput.max) || 1;
-  const val = Number(docLimitInput.value) || min;
-  const pct = ((val - min) / Math.max(1, max - min)) * 100;
+  const pos = (Number(docLimitInput.value) || 0) / (Number(docLimitInput.max) || SLIDER_MAX);
+  const pct = Math.max(0, Math.min(100, pos * 100));
   rangeSingleEl.style.setProperty('--value-pct', pct + '%');
-  rangeSingleEl.style.setProperty('--active-color', val >= 5000 ? '#e53935' : '#2f80ff');
+  const over = docLimit >= 10000;
+  // CSS variable fallback for older style; also toggle a helper class
+  rangeSingleEl.style.setProperty('--active-color', over ? '#e53935' : '#2f80ff');
+  if (over) rangeSingleEl.classList.add('overlimit'); else rangeSingleEl.classList.remove('overlimit');
 }
 
 function initDocLimitPanel() {
   if (!docLimitInput) return;
-  // Valeur par défaut
-  docLimitInput.value = String(docLimit);
-  if (docLimitLabel) docLimitLabel.textContent = String(docLimit);
+  // Initialiser la position du slider en fonction de docLimit par défaut
+  docLimitInput.min = '0';
+  docLimitInput.max = String(SLIDER_MAX);
+  docLimitInput.step = '1';
+  docLimitInput.value = String(limitToSlider(docLimit));
+  if (docLimitLabel) docLimitLabel.textContent = fmt(docLimit);
   updateDocLimitTrack();
 
   // Mise à jour temps réel de l’affichage
   docLimitInput.addEventListener('input', () => {
-    docLimit = Math.max(1, Number(docLimitInput.value) || docLimit);
-    if (docLimitLabel) docLimitLabel.textContent = String(docLimit);
+    // recalculer docLimit depuis la position du slider
+    docLimit = sliderToLimit(docLimitInput.value);
+    if (docLimitLabel) docLimitLabel.textContent = fmt(docLimit);
     updateDocLimitTrack();
   });
   // Déclencher une mise à jour de la carte au relâchement
   docLimitInput.addEventListener('change', async () => {
+    if (docLimit > 10000) {
+        showToast("Attention : plus de 10 000 documents demandés. Le chargement peut être très long.", 'warn', 5000);
+      // Empêche un double toast: on vient d'avertir, ne ré-affiche pas dans updateMapForFilters
+      try { lastLargeWarn = Date.now(); } catch {}
+    }
     const filters = { ...getCurrentTaxFilters(), ...getCurrentYearFilter() };
     showLoader();
     try {
@@ -109,7 +159,7 @@ function initDocLimitPanel() {
   });
 
   // Boutons de tri
-  const sortButtons = document.querySelectorAll('.sort-buttons .sort-btn');
+  const sortButtons = document.querySelectorAll('.sort-groups .sort-mini-btn');
   const updateActiveSort = () => {
     sortButtons.forEach(btn => {
       const [f, d] = String(btn.dataset.sort || '').split(':');
@@ -182,6 +232,16 @@ async function fetchTaxValues(level, currentFilters) {
 
 // Charge les observations selon les filtres, met à jour les marqueurs sur la carte et gère le loader.
 async function updateMapForFilters(filters) {
+  // Avertir si on lance une requête avec un docLimit très élevé
+  try {
+    if (getDocLimit() > 10000) {
+      const now = Date.now();
+      if (now - lastLargeWarn > 30000) { // au max toutes les 30s
+          showToast("Attention : plus de 10 000 documents demandés. Le chargement peut être très long.", 'warn', 5000);
+        lastLargeWarn = now;
+      }
+    }
+  } catch {}
   const params = new URLSearchParams({ limit: String(getDocLimit()) });
   // Tri
   if (sortState?.field && sortState?.dir) {
@@ -727,6 +787,29 @@ async function toggleBiodiversityGrid(enable) {
     setActive(newState);
     await toggleBiodiversityGrid(newState);
     console.debug('[bio-grid] toggle ->', newState);
+    updateMarkerVisibilityForFilters();
+  });
+})();
+
+// ---- Masquer/Afficher les marqueurs selon l'état des filtres rapides ----
+let markersAttached = true;
+function showMarkersLayer() { if (!markersAttached) { markers.addTo(map); markersAttached = true; } }
+function hideMarkersLayer() { if (markersAttached) { try { map.removeLayer(markers); } catch {} markersAttached = false; } }
+function anyQuickFilterActive() {
+  return !!document.querySelector('.filter-buttons .filter-btn.active');
+}
+function updateMarkerVisibilityForFilters() {
+  if (anyQuickFilterActive()) hideMarkersLayer(); else showMarkersLayer();
+}
+(function attachOtherQuickFilters() {
+  const buttons = document.querySelectorAll('.filter-buttons .filter-btn');
+  buttons.forEach(btn => {
+    const key = btn.getAttribute('data-filter');
+    if (key === 'f1') return; // déjà géré ci-dessus
+    btn.addEventListener('click', () => {
+      btn.classList.toggle('active');
+      updateMarkerVisibilityForFilters();
+    });
   });
 })();
 

@@ -7,7 +7,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
-app.use(express.json());
 
 // Démarrer la connexion Mongo en arrière-plan
 connectToMongo();
@@ -198,8 +197,6 @@ function mapDocToObservation(doc) {
     decimalLongitude: lng,
     scientificName: doc.scientificName || doc.nom_scientifique || doc.name || '',
     locality: doc.locality || doc.ville || doc.commune || doc.location || '',
-    year: doc.year || null,
-    countryCode: doc.countryCode || doc.countrycode || doc.country_code || '',
     _id: doc._id,
     __rawFields: undefined,
   };
@@ -258,21 +255,8 @@ app.get('/api/observations', async (req, res) => {
           latitude: 1, longitude: 1, lat: 1, lng: 1,
           location: 1, geometry: 1, coord: 1, coords: 1, coordinates: 1,
           scientificName: 1, nom_scientifique: 1, name: 1,
-          locality: 1, ville: 1, commune: 1,
-          year: 1,
-          countryCode: 1, countrycode: 1, country_code: 1
-        },
-        sort: (() => {
-          const field = String(req.query.sortField || 'natural').trim();
-          const dirStr = String(req.query.sortDir || 'asc').trim().toLowerCase();
-          const dir = dirStr === 'desc' ? -1 : 1;
-          const allowed = new Set(['decimalLongitude','decimalLatitude','year','natural','$natural']);
-          if (allowed.has(field) || allowed.has('$' + field)) {
-            if (field === 'natural' || field === '$natural') return { $natural: dir };
-            return { [field.replace(/^\$/,'')]: dir };
-          }
-          return undefined;
-        })()
+          locality: 1, ville: 1, commune: 1
+        }
       }
     };
 
@@ -563,34 +547,6 @@ app.get('/api/taxonomy/values', async (req, res) => {
   } catch (err) {
     console.error('Erreur /api/taxonomy/values :', err);
     res.status(500).send('Erreur lors de la récupération des valeurs taxonomiques.');
-  }
-});
-
-// Création d'un document (champs obligatoires en string)
-app.post('/api/documents', async (req, res) => {
-  const collection = getCollection();
-  if (!collection) {
-    return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
-  }
-  try {
-    const required = [
-      'kingdom','phylum','class','order','family','genus','species',
-      'infraspecificEpithet','taxonRank','scientificName','verbatimScientificName',
-      'countryCode','occurrenceStatus','decimalLatitude','decimalLongitude'
-    ];
-    const body = req.body || {};
-    const missing = required.filter(k => typeof body[k] !== 'string' || body[k].trim() === '');
-    if (missing.length) {
-      return res.status(400).json({ error: 'Champs obligatoires manquants/invalides', missing });
-    }
-    // Ne forcer aucun typage pour respecter la contrainte "tous sont des string".
-    // On ajoute des métadonnées minimales
-    const toInsert = { ...body, createdAt: new Date().toISOString() };
-    const r = await collection.insertOne(toInsert);
-    return res.status(201).json({ insertedId: r.insertedId });
-  } catch (err) {
-    console.error('Erreur /api/documents (POST) :', err);
-    return res.status(500).json({ error: 'Erreur lors de la création du document' });
   }
 });
 

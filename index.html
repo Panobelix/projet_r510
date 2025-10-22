@@ -56,25 +56,28 @@
             </div>
             <div class="limit-row sort">
                 <label>Trier</label>
-                <div class="sort-buttons" role="group" aria-label="Tri des observations">
-                    <button class="sort-btn" data-sort="natural:asc" aria-label="Ordre croissant" title="Ordre croissant">
-                        <span class="icon icon-up" aria-hidden="true"></span><span class="btn-text">Asc</span>
-                    </button>
-                    <button class="sort-btn" data-sort="natural:desc" aria-label="Ordre décroissant" title="Ordre décroissant">
-                        <span class="icon icon-down" aria-hidden="true"></span><span class="btn-text">Desc</span>
-                    </button>
-                    <button class="sort-btn" data-sort="decimalLongitude:asc" aria-label="Longitude croissante" title="Longitude croissante">
-                        <span class="icon icon-right" aria-hidden="true"></span><span class="btn-text">Lon</span>
-                    </button>
-                    <button class="sort-btn" data-sort="decimalLongitude:desc" aria-label="Longitude décroissante" title="Longitude décroissante">
-                        <span class="icon icon-left" aria-hidden="true"></span><span class="btn-text">Lon</span>
-                    </button>
-                    <button class="sort-btn" data-sort="decimalLatitude:asc" aria-label="Latitude croissante" title="Latitude croissante">
-                        <span class="icon icon-up" aria-hidden="true"></span><span class="btn-text">Lat</span>
-                    </button>
-                    <button class="sort-btn" data-sort="decimalLatitude:desc" aria-label="Latitude décroissante" title="Latitude décroissante">
-                        <span class="icon icon-down" aria-hidden="true"></span><span class="btn-text">Lat</span>
-                    </button>
+                <div class="sort-groups" role="group" aria-label="Tri des observations">
+                    <div class="sort-group" data-field="_id">
+                        <div class="sort-group-title" aria-hidden="true"><span class="icon icon-id"></span></div>
+                        <div class="sort-pair">
+                            <button class="sort-mini-btn" data-sort="_id:asc" title="ID croissant" aria-label="ID croissant"><span class="icon icon-up" aria-hidden="true"></span></button>
+                            <button class="sort-mini-btn" data-sort="_id:desc" title="ID décroissant" aria-label="ID décroissant"><span class="icon icon-down" aria-hidden="true"></span></button>
+                        </div>
+                    </div>
+                    <div class="sort-group" data-field="decimalLongitude">
+                        <div class="sort-group-title" aria-hidden="true"><span class="icon icon-globe-lon"></span></div>
+                        <div class="sort-pair">
+                            <button class="sort-mini-btn" data-sort="decimalLongitude:asc" title="Longitude croissante" aria-label="Longitude croissante"><span class="icon icon-up" aria-hidden="true"></span></button>
+                            <button class="sort-mini-btn" data-sort="decimalLongitude:desc" title="Longitude décroissante" aria-label="Longitude décroissante"><span class="icon icon-down" aria-hidden="true"></span></button>
+                        </div>
+                    </div>
+                    <div class="sort-group" data-field="decimalLatitude">
+                        <div class="sort-group-title" aria-hidden="true"><span class="icon icon-globe-lat"></span></div>
+                        <div class="sort-pair">
+                            <button class="sort-mini-btn" data-sort="decimalLatitude:asc" title="Latitude croissante" aria-label="Latitude croissante"><span class="icon icon-up" aria-hidden="true"></span></button>
+                            <button class="sort-mini-btn" data-sort="decimalLatitude:desc" title="Latitude décroissante" aria-label="Latitude décroissante"><span class="icon icon-down" aria-hidden="true"></span></button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -150,6 +153,8 @@
             </div>
         </div>
     </div>
+    <!-- Toast notifications container -->
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
     <script src="/script.js"></script>
 </body>
 </html>
