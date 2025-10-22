@@ -21,6 +21,9 @@ L.control.layers({ 'OpenStreetMap': osm, 'Satellite': sat, 'Topographique': topo
 try { if (map.attributionControl && map.attributionControl.setPrefix) map.attributionControl.setPrefix(false); } catch {}
 
 const markers = L.layerGroup().addTo(map);
+// Couche dédiée pour la visualisation latitude-diversité (séparée des marqueurs d'observations)
+let latDivLayer = L.layerGroup();
+let latDivActive = false;
 const statusDiv = document.getElementById('requete');
 const loadingOverlay = document.getElementById('loading-overlay');
 const cancelBtn = document.getElementById('btn-cancel-requests');
@@ -805,11 +808,44 @@ function updateMarkerVisibilityForFilters() {
   const buttons = document.querySelectorAll('.filter-buttons .filter-btn');
   buttons.forEach(btn => {
     const key = btn.getAttribute('data-filter');
-    if (key === 'f1') return; // déjà géré ci-dessus
+    if (key === 'f1' || key === 'f2') return; // f1 et f2 sont gérés séparément
     btn.addEventListener('click', () => {
       btn.classList.toggle('active');
       updateMarkerVisibilityForFilters();
     });
+  });
+})();
+
+// Attacher le bouton Filtre 2 pour afficher la corrélation latitude-diversité
+(function attachLatitudeDiversityButton() {
+  const btn = document.querySelector('[data-filter="f2"]');
+  if (!btn) return;
+  const setActive = (on) => btn.classList.toggle('active', on);
+  btn.addEventListener('click', async () => {
+    // On active le filtre visuellement et on affiche la corrélation
+    const wasActive = btn.classList.contains('active');
+    // Si déjà actif, on le désactive et restaure les marqueurs
+    if (wasActive) {
+      setActive(false);
+      // Retirer la couche lat-div si présente
+      try { if (map.hasLayer(latDivLayer)) map.removeLayer(latDivLayer); } catch {}
+      latDivActive = false;
+      updateMarkerVisibilityForFilters();
+      if (statusDiv) statusDiv.textContent = '';
+      return;
+    }
+    setActive(true);
+    // Si la couche est vide, appeler la fonction pour la peupler
+    try {
+      if (!latDivLayer || latDivLayer.getLayers().length === 0) {
+        await showLatitudeDiversityCorrelation();
+      }
+      if (!map.hasLayer(latDivLayer)) latDivLayer.addTo(map);
+      latDivActive = true;
+    } finally {
+      // masquer les marqueurs (car le filtre rapide est actif)
+      updateMarkerVisibilityForFilters();
+    }
   });
 })();
 
@@ -955,7 +991,8 @@ async function showLatitudeDiversityCorrelation() {
       }))
     };
 
-    markers.clearLayers();
+    // Utiliser la couche dédiée pour ne pas être affecté par la logique qui cache la couche `markers`
+    latDivLayer.clearLayers();
 
     mockData.correlation.forEach(d => {
       if (typeof d.latitude !== 'number' || typeof d.diversite !== 'number') return;
@@ -981,12 +1018,15 @@ async function showLatitudeDiversityCorrelation() {
         fillColor: color,
         fillOpacity: 0.6
       })
-      .addTo(markers)
+      .addTo(latDivLayer)
       .bindPopup(`Latitude ~${lat}°<br>Diversité: ${diversite}`);
     });
 
-    const all = markers.getLayers();
+    const all = latDivLayer.getLayers();
     if (all.length > 0) {
+      // S'assurer que la couche est affichée
+      if (!map.hasLayer(latDivLayer)) latDivLayer.addTo(map);
+      latDivActive = true;
       const group = L.featureGroup(all);
       map.fitBounds(group.getBounds().pad(0.3));
       if (statusDiv) statusDiv.textContent = 'Corrélation latitude-diversité affichée';

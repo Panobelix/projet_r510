@@ -73,9 +73,41 @@
     white-space: nowrap;
     box-shadow: 0 2px 8px rgba(0,0,0,0.25);
     pointer-events: none; /* ne bloque pas le clic sur la carte */
+    opacity: 0;
+    transform-origin: right center;
+    transition: opacity .15s ease, transform .15s ease;
 }
 /* variantes de couleur pour donner un repère visuel (autres filtres) */
-.filter-btn[data-filter="f2"] { background: linear-gradient(180deg, #383e3c66, #383e3c66); }
+.filter-btn[data-filter="f2"] {
+    background: #0e1720 url('img/filtres/filtre2.png') center/cover no-repeat;
+}
+.filter-btn[data-filter="f2"]::before {
+    content: "Corrélation latitude - diversité";
+    position: absolute;
+    right: 100%; /* collé à gauche du bouton */
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,0.9);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-right: none; /* pour éviter double bord avec le bouton */
+    padding: 6px 10px;
+    border-radius: 8px 0 0 8px;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    pointer-events: none;
+    opacity: 0;
+    transform-origin: right center;
+    transition: opacity .15s ease, transform .15s ease;
+}
+
+/* Afficher le label au survol, au focus clavier, ou quand le bouton est actif */
+.filter-btn:hover::before,
+.filter-btn:focus-visible::before,
+.filter-btn.active::before {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+}
 .filter-btn[data-filter="f3"] { background: linear-gradient(180deg, #383e3c66, #383e3c66); }
 .filter-btn[data-filter="f4"] { background: linear-gradient(180deg, #383e3c66, #383e3c66); }
 
