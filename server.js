@@ -6,11 +6,15 @@ const { connectToMongo, getCollection, closeMongo } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3005;
 
+// Middlewares
+app.use(express.json()); // JSON body parsing for future POST endpoints
 app.use(express.static(__dirname));
-app.use(express.json());
 
 // Démarrer la connexion Mongo en arrière-plan
 connectToMongo();
+
+// =================== Constantes ===================
+const TAXO_LEVELS = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
 
 // =================== Cache de grille (globale, pré-calculée) ===================
 // Clé: sizeDeg en string -> { cells, scanned, updatedAt }
@@ -196,17 +200,17 @@ function mapDocToObservation(doc) {
   return {
     decimalLatitude: lat,
     decimalLongitude: lng,
-    scientificName: doc.scientificName || doc.nom_scientifique || doc.name || '',
-    locality: doc.locality || doc.ville || doc.commune || doc.location || '',
-    year: doc.year || null,
-    countryCode: doc.countryCode || doc.countrycode || doc.country_code || '',
+    scientificName: doc.scientificName,
+    locality: doc.locality,
+    year: doc.year ?? null,
+    countryCode: doc.countryCode ?? null,
     _id: doc._id,
     __rawFields: undefined,
   };
 }
 
 
-/**
+/*
  * *************************
  * ******** ROUTES *********
  * *************************
@@ -215,11 +219,6 @@ function mapDocToObservation(doc) {
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
-
-// Endpoint de debug pour vérifier le fichier réellement servi
-
-// (app.listen déplacé en bas du fichier après la déclaration de toutes les routes)
-
 
 // Endpoint principal: renvoie des observations filtrées (et mappées) pour la carte
 app.get('/api/observations', async (req, res) => {
@@ -234,7 +233,7 @@ app.get('/api/observations', async (req, res) => {
   const limit = hasLimit ? limitParam : undefined;
 
     // Requête Mongo explicite (style mongosh)
-    const taxonomyLevels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
+    const taxonomyLevels = TAXO_LEVELS;
     const findQuery = {
       filter: (() => {
         const f = {};
@@ -255,24 +254,12 @@ app.get('/api/observations', async (req, res) => {
         projection: {
           // champs utiles pour la carte/popup + diverses variantes pour coordonnées
           decimalLatitude: 1, decimalLongitude: 1,
-          latitude: 1, longitude: 1, lat: 1, lng: 1,
-          location: 1, geometry: 1, coord: 1, coords: 1, coordinates: 1,
-          scientificName: 1, nom_scientifique: 1, name: 1,
-          locality: 1, ville: 1, commune: 1,
+          scientificName: 1,
+          // champs nécessaires pour popup
           year: 1,
-          countryCode: 1, countrycode: 1, country_code: 1
-        },
-        sort: (() => {
-          const field = String(req.query.sortField || 'natural').trim();
-          const dirStr = String(req.query.sortDir || 'asc').trim().toLowerCase();
-          const dir = dirStr === 'desc' ? -1 : 1;
-          const allowed = new Set(['decimalLongitude','decimalLatitude','year','natural','$natural']);
-          if (allowed.has(field) || allowed.has('$' + field)) {
-            if (field === 'natural' || field === '$natural') return { $natural: dir };
-            return { [field.replace(/^\$/,'')]: dir };
-          }
-          return undefined;
-        })()
+          locality: 1, ville: 1, commune: 1, location: 1,
+          countryCode: 1
+        }
       }
     };
 
@@ -358,13 +345,7 @@ app.get('/api/coords/grid', async (req, res) => {
         let maxDocs = Number(req.query.maxDocs ?? 35000000);
         if (!Number.isFinite(maxDocs) || maxDocs <= 0) maxDocs = 35000000;
 
-    // Filtres taxonomiques
-    const taxonomyLevels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
-    const match = {};
-    for (const lvl of taxonomyLevels) {
-      const val = req.query[lvl];
-      if (val) match[lvl] = String(val);
-    }
+    // Filtres taxonomiques (voir findQuery ci-dessous pour application effective)
     // Filtre année
     const yMin = req.query.yearMin ? Number(req.query.yearMin) : null;
     const yMax = req.query.yearMax ? Number(req.query.yearMax) : null;
@@ -379,7 +360,7 @@ app.get('/api/coords/grid', async (req, res) => {
     filter: (() => {
       const f = {};
       // Filtres taxonomiques
-      for (const lvl of ['kingdom','phylum','class','order','family','genus','species','scientificName']) {
+      for (const lvl of TAXO_LEVELS) {
         const val = req.query[lvl];
         if (val) f[lvl] = String(val);
       }
@@ -532,24 +513,22 @@ app.get('/api/taxonomy/values', async (req, res) => {
     return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
   }
   try {
-    const levels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
     const level = String(req.query.level || '').trim();
-    if (!levels.includes(level)) {
-      return res.status(400).json({ error: 'Paramètre level invalide', allowed: levels });
+    if (!TAXO_LEVELS.includes(level)) {
+      return res.status(400).json({ error: 'Paramètre level invalide', allowed: TAXO_LEVELS });
     }
     // Construire le pipeline avec filtre inline (style mongosh)
-    const idx = levels.indexOf(level);
+    const idx = TAXO_LEVELS.indexOf(level);
     const pipeline = [
       { $match: (() => {
         const f = {};
         for (let i = 0; i < idx; i++) {
-          const prev = levels[i];
+          const prev = TAXO_LEVELS[i];
           const val = req.query[prev];
           if (val) f[prev] = String(val);
         }
         return f;
       })() },
-      { $sort: { [level]: 1 } },
       { $group: { _id: `$${level}` } },
       { $project: { value: '$_id', _id: 0 } }
     ];
@@ -563,34 +542,6 @@ app.get('/api/taxonomy/values', async (req, res) => {
   } catch (err) {
     console.error('Erreur /api/taxonomy/values :', err);
     res.status(500).send('Erreur lors de la récupération des valeurs taxonomiques.');
-  }
-});
-
-// Création d'un document (champs obligatoires en string)
-app.post('/api/documents', async (req, res) => {
-  const collection = getCollection();
-  if (!collection) {
-    return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
-  }
-  try {
-    const required = [
-      'kingdom','phylum','class','order','family','genus','species',
-      'infraspecificEpithet','taxonRank','scientificName','verbatimScientificName',
-      'countryCode','occurrenceStatus','decimalLatitude','decimalLongitude'
-    ];
-    const body = req.body || {};
-    const missing = required.filter(k => typeof body[k] !== 'string' || body[k].trim() === '');
-    if (missing.length) {
-      return res.status(400).json({ error: 'Champs obligatoires manquants/invalides', missing });
-    }
-    // Ne forcer aucun typage pour respecter la contrainte "tous sont des string".
-    // On ajoute des métadonnées minimales
-    const toInsert = { ...body, createdAt: new Date().toISOString() };
-    const r = await collection.insertOne(toInsert);
-    return res.status(201).json({ insertedId: r.insertedId });
-  } catch (err) {
-    console.error('Erreur /api/documents (POST) :', err);
-    return res.status(500).json({ error: 'Erreur lors de la création du document' });
   }
 });
 
@@ -608,4 +559,50 @@ process.on('SIGINT', async () => {
 app.listen(PORT, () => {
   console.log(`Serveur démarré sur le port ${PORT}`);
   console.log('Routes disponibles: /, /api/observations, /api/coords, /api/coords/grid, /api/years/minmax, /api/taxonomy/values');
+});
+
+// Endpoint : corrélation latitude-diversité
+app.get('/api/correlation/latitude-diversite', async (req, res) => {
+  const collection = getCollection();
+  if (!collection) {
+    return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
+  }
+
+  try {
+    const SAMPLE_SIZE = 200000; 
+    const BINSIZE = 5;
+
+    const pipeline = [
+      { $sample: { size: SAMPLE_SIZE } },
+      { $project: { latitude: '$decimalLatitude', name: '$scientificName' } },
+      { $match: { latitude: { $type: 'number' }, name: { $exists: true, $ne: '' } } },
+      {
+        $project: {
+          latBin: { $multiply: [{ $floor: { $divide: ['$latitude', BINSIZE] } }, BINSIZE] },
+          name: 1
+        }
+      },
+      {
+        $group: {
+          _id: '$latBin',
+          species: { $addToSet: '$name' }
+        }
+      },
+      {
+        $project: {
+          latitude: '$_id',
+          diversite: { $size: '$species' },
+          _id: 0
+        }
+      },
+      { $sort: { latitude: 1 } }
+    ];
+
+    const cursor = collection.aggregate(pipeline, { allowDiskUse: true });
+    const data = await cursor.toArray();
+    res.json({ correlation: data, sampled: SAMPLE_SIZE });
+  } catch (err) {
+    console.error('Erreur /api/correlation/latitude-diversite :', err);
+    res.status(500).send('Erreur lors du calcul de la corrélation latitude-diversité.');
+  }
 });
