@@ -1,3 +1,19 @@
+/**
+ * Serveur Express de visualisation biodiversité (Brésil)
+ * ------------------------------------------------------
+ * - Sert l'UI statique (Leaflet + panneaux)
+ * - Expose des API optimisées MongoDB pour:
+ *   - /api/observations: requête dynamique (taxonomie + année + tri + limit)
+ *   - /api/coords, /api/coords/grid: coordonnées et grille densité (bbox)
+ *   - /api/years/minmax: bornes rapides des années sous filtres taxo
+ *   - /api/taxonomy/values: valeurs distinctes d’un niveau (cascade)
+ *
+ * Notes d’implémentation:
+ * - Les perfs reposent sur des index composés ESR (Égalité → Sort → Range)
+ *   créés au démarrage (voir db.js). Pas de hints forcés (sauf min/max year).
+ * - On garde les champs canoniques (decimalLatitude, decimalLongitude, scientificName,
+ *   locality, countryCode, year) pour simplifier et fiabiliser les tris/filters.
+ */
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -6,18 +22,18 @@ const { connectToMongo, getCollection, closeMongo } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3005;
 
-// Middlewares
-app.use(express.json()); // JSON body parsing for future POST endpoints
+// Sert tous les fichiers statiques depuis le dossier courant (index.html, script.js, styles.css, img/)
 app.use(express.static(__dirname));
+// Parseur JSON pour les POST (ajout de document)
+app.use(express.json({ limit: '1mb' }));
 
-// Démarrer la connexion Mongo en arrière-plan
+// Démarrer la connexion Mongo en arrière-plan (reconnexion automatique gérée dans db.js)
 connectToMongo();
 
-// =================== Constantes ===================
-const TAXO_LEVELS = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
-
 // =================== Cache de grille (globale, pré-calculée) ===================
-// Clé: sizeDeg en string -> { cells, scanned, updatedAt }
+// Objectif: calculer périodiquement une grille densité monde (ou national) côté serveur
+// pour offrir une superposition “biodiversité par effort d’observation” instantanée.
+// Structure: clé sizeDeg (string) -> { cells, scanned, updatedAt, capped }
 const gridCache = new Map();
 let isComputingCache = false;
 
@@ -35,7 +51,7 @@ async function computeGlobalGrid(sizeDeg = 0.25, cap = 35000000) {
   const key = String(sizeDeg);
   console.log(`[grid-cache] Démarrage calcul global sizeDeg=${key}, cap=${cap}`);
   try {
-    // Requête Mongo explicite (hors endpoint mais cohérent)
+    // Requête Mongo: ne récupérer que les docs avec coords numériques (projection minimale)
     const findQuery = {
       filter: {
         decimalLatitude: { $type: 'number' },
@@ -46,6 +62,7 @@ async function computeGlobalGrid(sizeDeg = 0.25, cap = 35000000) {
     const cursor = collection.find(findQuery.filter, findQuery.options);
     const map = new Map();
     let scanned = 0;
+    // Fonctions utilitaires de discrétisation et de géométrie
     const cellKeyFromLatLng = (lat, lng) => {
       const i = Math.floor((lat + 90) / sizeDeg);
       const j = Math.floor((lng + 180) / sizeDeg);
@@ -104,7 +121,7 @@ setTimeout(() => { computeGlobalGrid(0.25, 35000000); }, 5000);
 // Recalcul périodique: toutes les heures
 setInterval(() => { computeGlobalGrid(0.25, 35000000); }, 60 * 60 * 1000);
 
-// Mapping util to support multiple field names and cast to numbers
+// Mapping util: cast robuste vers number (gère string, virgule, etc.)
 function toNumberOrNull(v) {
   if (v === undefined || v === null) return null;
   if (Array.isArray(v)) return null;
@@ -118,99 +135,29 @@ function toNumberOrNull(v) {
 }
 
 
-// Try to extract lat/lng from a generic object with varied key names
-function latLngFromObject(obj) {
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { lat: null, lng: null };
-  const keys = Object.keys(obj);
-  // map keys case-insensitive
-  const get = (names) => {
-    const foundKey = keys.find(k => names.includes(k.toLowerCase()));
-    return foundKey !== undefined ? obj[foundKey] : undefined;
-  };
-  const latRaw = get(['lat','latitude','y','latitud']);
-  const lngRaw = get(['lng','lon','long','longitude','x','longitud']);
-  return { lat: toNumberOrNull(latRaw), lng: toNumberOrNull(lngRaw) };
-}
-
-
+// Normalise un document Mongo en observation “canonique” pour la carte
 function mapDocToObservation(doc) {
-  // Try common latitude/longitude field names
-  let lat = toNumberOrNull(
-    doc.decimalLatitude ?? doc.latitude ?? doc.lat ?? doc.Latitude ?? doc.LAT
-  );
-  let lng = toNumberOrNull(
-    doc.decimalLongitude ?? doc.longitude ?? doc.lon ?? doc.lng ?? doc.Longitude ?? doc.LON
-  );
-
-  // GeoJSON Point support: { location: { type: 'Point', coordinates: [lng, lat] } }
-  if ((lat === null || lng === null) && doc.location && Array.isArray(doc.location.coordinates)) {
-    const c = doc.location.coordinates;
-    if (c.length >= 2) {
-      lng = toNumberOrNull(c[0]);
-      lat = toNumberOrNull(c[1]);
-    }
-  }
-  if ((lat === null || lng === null) && doc.geometry && Array.isArray(doc.geometry.coordinates)) {
-    const c = doc.geometry.coordinates;
-    if (c.length >= 2) {
-      lng = toNumberOrNull(c[0]);
-      lat = toNumberOrNull(c[1]);
-    }
-  }
-  // location as object with lat/lng
-  if ((lat === null || lng === null) && doc.location && !Array.isArray(doc.location)) {
-    const p = latLngFromObject(doc.location);
-    lat = lat ?? p.lat; lng = lng ?? p.lng;
-  }
-  // generic nested objects: coord/coords/geo/geoloc/position/point
-  const nestedCandidates = [doc.coord, doc.coords, doc.geo, doc.geoloc, doc.position, doc.point, doc.centre, doc.center];
-  for (const candidate of nestedCandidates) {
-    if (lat !== null && lng !== null) break;
-    const p = latLngFromObject(candidate);
-    if (lat === null && p.lat !== null) lat = p.lat;
-    if (lng === null && p.lng !== null) lng = p.lng;
-  }
-  // location as string "lat,lng" or "lng,lat"
-  if ((lat === null || lng === null) && typeof doc.location === 'string') {
-    const parts = doc.location.split(/\s*,\s*/);
-    if (parts.length >= 2) {
-      const a0 = toNumberOrNull(parts[0]);
-      const a1 = toNumberOrNull(parts[1]);
-      if (a0 !== null && a1 !== null) {
-        if (Math.abs(a0) <= 90 && Math.abs(a1) <= 180) { lat = a0; lng = a1; }
-        else { lng = a0; lat = a1; }
-      }
-    }
-  }
-  // Generic arrays: coordinates/coord/coords possibly [lat, lng] or [lng, lat]
-  const arr = doc.coordinates || doc.coord || doc.coords;
-  if ((lat === null || lng === null) && Array.isArray(arr) && arr.length >= 2) {
-    const a0 = toNumberOrNull(arr[0]);
-    const a1 = toNumberOrNull(arr[1]);
-    if (a0 !== null && a1 !== null) {
-      // Heuristic: if first looks like latitude (<=90), assume [lat, lng], else [lng, lat]
-      if (Math.abs(a0) <= 90 && Math.abs(a1) <= 180) {
-        lat = a0; lng = a1;
-      } else {
-        lng = a0; lat = a1;
-      }
-    }
-  }
-
+  // Simplified mapping: only accept decimalLatitude/decimalLongitude, scientificName, locality, countryCode, year
+  const lat = toNumberOrNull(doc.decimalLatitude);
+  const lng = toNumberOrNull(doc.decimalLongitude);
+  const scientificName = doc.scientificName || '';
+  const locality = doc.locality || '';
+  const countryCode = doc.countryCode || '';
+  const year = (typeof doc.year === 'number' || typeof doc.year === 'string') ? doc.year : undefined;
   return {
     decimalLatitude: lat,
     decimalLongitude: lng,
-    scientificName: doc.scientificName,
-    locality: doc.locality,
-    year: doc.year ?? null,
-    countryCode: doc.countryCode ?? null,
+    scientificName,
+    locality,
+    countryCode,
+    year,
     _id: doc._id,
     __rawFields: undefined,
   };
 }
 
 
-/*
+/**
  * *************************
  * ******** ROUTES *********
  * *************************
@@ -220,20 +167,43 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// Endpoint de debug pour vérifier le fichier réellement servi
+
+// (app.listen déplacé en bas du fichier après la déclaration de toutes les routes)
+
+
 // Endpoint principal: renvoie des observations filtrées (et mappées) pour la carte
+// - Filtres: égalités taxo (kingdom..scientificName), plage year, coords numériques
+// - Tri: _id | decimalLongitude | decimalLatitude | year
+// - Limit: borne le nombre de documents renvoyés
 app.get('/api/observations', async (req, res) => {
   const collection = getCollection();
   if (!collection) {
     return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
   }
   try {
-  // Aucune limite imposée côté serveur: géré par le slider (limit) côté client.
+
+  // Récupération de la limite de documents et vérification de la validité de la valeur
   const limitParam = parseInt(req.query.limit, 10);
   const hasLimit = Number.isFinite(limitParam) && limitParam > 0;
   const limit = hasLimit ? limitParam : undefined;
 
     // Requête Mongo explicite (style mongosh)
-    const taxonomyLevels = TAXO_LEVELS;
+    const taxonomyLevels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
+  const sortField = String(req.query.sortField || '_id').trim();
+  const sortDirStr = String(req.query.sortDir || 'asc').trim().toLowerCase();
+  const sortDir = sortDirStr === 'desc' ? -1 : 1;
+  const taxFiltersCount = taxonomyLevels.reduce((n,lvl)=> n + (req.query[lvl] ? 1 : 0), 0);
+  const hasTaxFilters = taxFiltersCount > 0;
+  const qYearMin = req.query.yearMin ? Number(req.query.yearMin) : null;
+  const qYearMax = req.query.yearMax ? Number(req.query.yearMax) : null;
+  const hasYearFilter = Number.isFinite(qYearMin) || Number.isFinite(qYearMax);
+    const explainRequested = (() => {
+      const v = String(req.query.explain || '').trim().toLowerCase();
+      return v === '1' || v === 'true';
+    })();
+
+    // Construire la requête “style mongosh”: filter + options (projection, sort, limit)
     const findQuery = {
       filter: (() => {
         const f = {};
@@ -241,32 +211,73 @@ app.get('/api/observations', async (req, res) => {
           const val = req.query[lvl];
           if (val) f[lvl] = String(val);
         }
-        const yMin = req.query.yearMin ? Number(req.query.yearMin) : null;
-        const yMax = req.query.yearMax ? Number(req.query.yearMax) : null;
+        const yMin = qYearMin;
+        const yMax = qYearMax;
         if (Number.isFinite(yMin) || Number.isFinite(yMax)) {
           f.year = {};
           if (Number.isFinite(yMin)) f.year.$gte = yMin;
           if (Number.isFinite(yMax)) f.year.$lte = yMax;
         }
+        // Tous les documents retournés doivent avoir des coordonnées numériques
+        f.decimalLatitude = { ...(f.decimalLatitude || {}), $type: 'number' };
+        f.decimalLongitude = { ...(f.decimalLongitude || {}), $type: 'number' };
         return f;
       })(),
       options: {
         projection: {
-          // champs utiles pour la carte/popup + diverses variantes pour coordonnées
-          decimalLatitude: 1, decimalLongitude: 1,
+          // champs utiles pour la carte/popup (format unifié)
+          decimalLatitude: 1,
+          decimalLongitude: 1,
           scientificName: 1,
-          // champs nécessaires pour popup
-          year: 1,
-          locality: 1, ville: 1, commune: 1, location: 1,
-          countryCode: 1
-        }
+          locality: 1,
+          countryCode: 1,
+          year: 1
+        },
+        sort: (() => {
+          // Autoriser uniquement quelques champs contrôlés; pas de $natural
+          const allowed = new Set(['_id','decimalLongitude','decimalLatitude','year']);
+          if (allowed.has(sortField)) {
+            return { [sortField]: sortDir };
+          }
+          return { _id: sortDir };
+        })(),
+        // Donner un indice au planificateur pour utiliser l'index si pertinent
+        hint: undefined,
+        allowDiskUse: true,
+        limit: (hasLimit && Number.isFinite(limit)) ? limit : undefined
       }
     };
 
-    const cursor = collection.find(findQuery.filter, findQuery.options);
+    // Optionnel: fournir un plan pour diagnostiquer l'utilisation de l'index (debug UI: explain=1)
+    let planSummary = null;
+    if (explainRequested) {
+      try {
+        const explain = await collection.find(findQuery.filter, { ...findQuery.options, limit: 0 }).explain('executionStats');
+        const qp = explain?.queryPlanner;
+        const es = explain?.executionStats;
+        const winning = qp?.winningPlan || null;
+        // Extraire un indexName si présent dans le plan
+        const extractIndexName = (node) => {
+          if (!node || typeof node !== 'object') return null;
+          if (node.indexName) return node.indexName;
+          return extractIndexName(node.inputStage) || extractIndexName(node.inputStages?.[0]) || null;
+        };
+        planSummary = {
+          indexHint: findQuery.options.hint || null,
+          winningPlan: winning ? { stage: winning.stage || winning?.inputStage?.stage || undefined, indexName: extractIndexName(winning) } : null,
+          totalDocsExamined: es?.totalDocsExamined,
+          totalKeysExamined: es?.totalKeysExamined,
+          executionTimeMillis: es?.executionTimeMillis,
+        };
+      } catch (e) {
+        planSummary = { error: String(e?.message || e) };
+      }
+    }
+
+    // Chemin standard: laisser Mongo exécuter tri + limit (les indexes couvrent les cas courants)
     const results = [];
     let scanned = 0;
-    // Itérer tant qu'on n'a pas trouvé le nombre demandé d'observations avec coordonnées valides
+    const cursor = collection.find(findQuery.filter, findQuery.options);
     // eslint-disable-next-line no-restricted-syntax
     for await (const doc of cursor) {
       scanned++;
@@ -276,10 +287,51 @@ app.get('/api/observations', async (req, res) => {
       }
       if (hasLimit && results.length >= limit) break;
     }
-    res.json({ results, limit: hasLimit ? limit : null, count: results.length, scanned });
+    res.json({ results, limit: hasLimit ? limit : null, count: results.length, scanned, plan: planSummary, windowedByYear: false });
   } catch (err) {
     console.error('Erreur /api/observations :', err);
     res.status(500).send('Erreur lors de la récupération des observations.');
+  }
+});
+
+// Création d'un document (ajout depuis l'UI)
+// Body attendu: JSON arbitraire mais on normalise quelques champs canoniques
+// - decimalLatitude / decimalLongitude: convertis en Number et requis
+// - year: converti en Number si fourni
+// Réponse: { insertedId }
+app.post('/api/documents', async (req, res) => {
+  const collection = getCollection();
+  if (!collection) {
+    return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
+  }
+  try {
+    const body = req.body || {};
+    // Cloner l'objet et normaliser quelques champs
+    const doc = { ...body };
+    // Champs numériques canoniques
+    if (doc.decimalLatitude !== undefined) doc.decimalLatitude = toNumberOrNull(doc.decimalLatitude);
+    if (doc.decimalLongitude !== undefined) doc.decimalLongitude = toNumberOrNull(doc.decimalLongitude);
+    if (doc.year !== undefined && doc.year !== null && doc.year !== '') {
+      const y = Number(String(doc.year).trim());
+      doc.year = Number.isFinite(y) ? y : doc.year; // si non num, on laisse tel quel
+    }
+    // Validation minimale: coords numériques requises
+    if (typeof doc.decimalLatitude !== 'number' || typeof doc.decimalLongitude !== 'number') {
+      return res.status(400).json({ error: 'Champs decimalLatitude et decimalLongitude numériques requis.' });
+    }
+    // Hygiène basique sur quelques strings
+    const strFields = ['kingdom','phylum','class','order','family','genus','species','infraspecificEpithet','taxonRank','scientificName','verbatimScientificName','countryCode','locality'];
+    for (const f of strFields) {
+      if (doc[f] !== undefined && doc[f] !== null) {
+        doc[f] = String(doc[f]).trim();
+      }
+    }
+    // Insertion
+    const result = await collection.insertOne(doc);
+    return res.status(201).json({ insertedId: result.insertedId });
+  } catch (err) {
+    console.error('Erreur /api/documents (POST) :', err);
+    return res.status(500).send("Erreur lors de l'ajout du document.");
   }
 });
 
@@ -321,6 +373,8 @@ app.get('/api/coords', async (req, res) => {
 });
 
 // Endpoint d'agrégation serveur: renvoie des cellules de grille (compte de points) dans un bbox
+// - Agrégation “streaming” côté Node pour éviter de charger tout en mémoire
+// - Filtres: taxo égalité, plage year, bbox, coords numériques
 // GET /api/coords/grid?south=&west=&north=&east=&sizeDeg=1.0&maxDocs=300000&...filtres
 app.get('/api/coords/grid', async (req, res) => {
   const collection = getCollection();
@@ -345,7 +399,13 @@ app.get('/api/coords/grid', async (req, res) => {
         let maxDocs = Number(req.query.maxDocs ?? 35000000);
         if (!Number.isFinite(maxDocs) || maxDocs <= 0) maxDocs = 35000000;
 
-    // Filtres taxonomiques (voir findQuery ci-dessous pour application effective)
+    // Filtres taxonomiques
+    const taxonomyLevels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
+    const match = {};
+    for (const lvl of taxonomyLevels) {
+      const val = req.query[lvl];
+      if (val) match[lvl] = String(val);
+    }
     // Filtre année
     const yMin = req.query.yearMin ? Number(req.query.yearMin) : null;
     const yMax = req.query.yearMax ? Number(req.query.yearMax) : null;
@@ -360,7 +420,7 @@ app.get('/api/coords/grid', async (req, res) => {
     filter: (() => {
       const f = {};
       // Filtres taxonomiques
-      for (const lvl of TAXO_LEVELS) {
+      for (const lvl of ['kingdom','phylum','class','order','family','genus','species','scientificName']) {
         const val = req.query[lvl];
         if (val) f[lvl] = String(val);
       }
@@ -431,7 +491,7 @@ app.get('/api/coords/grid', async (req, res) => {
         if (now - lastLog >= LOG_MS) {
           const secs = (now - t0) / 1000;
           const rate = scanned / Math.max(1, secs);
-          console.log(`[grid-endpoint] progress scanned=${scanned} cells=${map.size} rate=${rate.toFixed(1)} doc/s elapsed=${secs.toFixed(1)}s sizeDeg=${sizeDeg}${hasBbox ? ' bbox' : ''}`);
+          console.log(`[Calcul du filtre] scanned=${scanned} cells=${map.size} rate=${rate.toFixed(1)} doc/s elapsed=${secs.toFixed(1)}s sizeDeg=${sizeDeg}${hasBbox ? ' bbox' : ''}`);
           lastLog = now;
         }
       }
@@ -443,7 +503,7 @@ app.get('/api/coords/grid', async (req, res) => {
     }
     cells.sort((a,b) => b.count - a.count);
     const t1 = Date.now();
-    console.log(`[grid-endpoint] done scanned=${scanned} cells=${cells.length} capped=${scanned>=maxDocs} time=${((t1-t0)/1000).toFixed(1)}s sizeDeg=${sizeDeg}${hasBbox ? ' bbox' : ''}`);
+    console.log(`[Filtre disponible] scanned=${scanned} cells=${cells.length} capped=${scanned>=maxDocs} time=${((t1-t0)/1000).toFixed(1)}s sizeDeg=${sizeDeg}${hasBbox ? ' bbox' : ''}`);
     res.json({
       bbox: { south, west, north, east },
       sizeDeg,
@@ -475,31 +535,32 @@ app.get('/api/coords/grid/cached', async (req, res) => {
 });
 
 // Endpoint min/max pour l'attribut 'year' selon les filtres taxonomiques courants
+// - Deux requêtes indexées ultra-rapides (tri asc/desc + limit 1) avec hint { year: 1 }
 app.get('/api/years/minmax', async (req, res) => {
   const collection = getCollection();
   if (!collection) {
     return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
   }
   try {
-    const pipeline = [
-      { $match: (() => {
-        const m = {};
-        for (const lvl of ['kingdom','phylum','class','order','family','genus','species','scientificName']) {
-          const val = req.query[lvl];
-          if (val) m[lvl] = String(val);
-        }
-        return m;
-      })() },
-      { $group: { _id: null, min: { $min: '$year' }, max: { $max: '$year' } } },
-      /* faire en sorte que ca prenne aussi les champs eventdate si year absent */
-    ];
-    // Requête Mongo explicite
-    const aggregateQuery = { pipeline };
-    const agg = await collection.aggregate(aggregateQuery.pipeline).toArray();
-    if (!agg.length || agg[0].min === undefined || agg[0].max === undefined) {
-      return res.json({ minYear: null, maxYear: null });
+    // Construction du filtre (égalité stricte sur niveaux taxonomiques) + 'year' numérique
+    const levels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
+    const filter = {};
+    for (const lvl of levels) {
+      const val = req.query[lvl];
+      if (val) filter[lvl] = String(val);
     }
-    res.json({ minYear: agg[0].min, maxYear: agg[0].max });
+    filter.year = { $type: 'number' };
+
+    // Stratégie ultra-rapide: deux recherches indexées avec tri et limite 1
+    // Utilise l'index { year: 1 } si présent (créé au démarrage)
+  const findOptsAsc = { projection: { _id: 0, year: 1 }, sort: { year: 1 }, hint: { year: 1 } };
+  const findOptsDesc = { projection: { _id: 0, year: 1 }, sort: { year: -1 }, hint: { year: 1 } };
+
+    const [minDoc] = await collection.find(filter, findOptsAsc).limit(1).toArray();
+    const [maxDoc] = await collection.find(filter, findOptsDesc).limit(1).toArray();
+    const minYear = minDoc?.year ?? null;
+    const maxYear = maxDoc?.year ?? null;
+    return res.json({ minYear, maxYear });
   } catch (err) {
     console.error('Erreur /api/years/minmax :', err);
     res.status(500).send('Erreur lors du calcul des bornes année.');
@@ -507,28 +568,31 @@ app.get('/api/years/minmax', async (req, res) => {
 });
 
 // Endpoint pour récupérer les valeurs distinctes d'un niveau taxonomique, avec filtres amont (égalité stricte)
+// - Pipeline compact: $match (contraintes amont) -> $sort -> $group -> $project
 app.get('/api/taxonomy/values', async (req, res) => {
   const collection = getCollection();
   if (!collection) {
     return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
   }
   try {
+    const levels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
     const level = String(req.query.level || '').trim();
-    if (!TAXO_LEVELS.includes(level)) {
-      return res.status(400).json({ error: 'Paramètre level invalide', allowed: TAXO_LEVELS });
+    if (!levels.includes(level)) {
+      return res.status(400).json({ error: 'Paramètre level invalide', allowed: levels });
     }
     // Construire le pipeline avec filtre inline (style mongosh)
-    const idx = TAXO_LEVELS.indexOf(level);
+    const idx = levels.indexOf(level);
     const pipeline = [
       { $match: (() => {
         const f = {};
         for (let i = 0; i < idx; i++) {
-          const prev = TAXO_LEVELS[i];
+          const prev = levels[i];
           const val = req.query[prev];
           if (val) f[prev] = String(val);
         }
         return f;
       })() },
+      { $sort: { [level]: 1 } },
       { $group: { _id: `$${level}` } },
       { $project: { value: '$_id', _id: 0 } }
     ];
@@ -545,7 +609,7 @@ app.get('/api/taxonomy/values', async (req, res) => {
   }
 });
 
-// Fermeture propre
+// Fermeture propre (SIGINT Ctrl+C): fermeture Mongo avant exit
 process.on('SIGINT', async () => {
   console.log('Arrêt du serveur...');
   try {
@@ -558,51 +622,4 @@ process.on('SIGINT', async () => {
 // Démarrage du serveur une fois toutes les routes enregistrées
 app.listen(PORT, () => {
   console.log(`Serveur démarré sur le port ${PORT}`);
-  console.log('Routes disponibles: /, /api/observations, /api/coords, /api/coords/grid, /api/years/minmax, /api/taxonomy/values');
-});
-
-// Endpoint : corrélation latitude-diversité
-app.get('/api/correlation/latitude-diversite', async (req, res) => {
-  const collection = getCollection();
-  if (!collection) {
-    return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
-  }
-
-  try {
-    const SAMPLE_SIZE = 200000; 
-    const BINSIZE = 5;
-
-    const pipeline = [
-      { $sample: { size: SAMPLE_SIZE } },
-      { $project: { latitude: '$decimalLatitude', name: '$scientificName' } },
-      { $match: { latitude: { $type: 'number' }, name: { $exists: true, $ne: '' } } },
-      {
-        $project: {
-          latBin: { $multiply: [{ $floor: { $divide: ['$latitude', BINSIZE] } }, BINSIZE] },
-          name: 1
-        }
-      },
-      {
-        $group: {
-          _id: '$latBin',
-          species: { $addToSet: '$name' }
-        }
-      },
-      {
-        $project: {
-          latitude: '$_id',
-          diversite: { $size: '$species' },
-          _id: 0
-        }
-      },
-      { $sort: { latitude: 1 } }
-    ];
-
-    const cursor = collection.aggregate(pipeline, { allowDiskUse: true });
-    const data = await cursor.toArray();
-    res.json({ correlation: data, sampled: SAMPLE_SIZE });
-  } catch (err) {
-    console.error('Erreur /api/correlation/latitude-diversite :', err);
-    res.status(500).send('Erreur lors du calcul de la corrélation latitude-diversité.');
-  }
 });

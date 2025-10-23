@@ -27,18 +27,18 @@
     </div>
     <!-- Panneau espèces / taxonomie -->
     <div id="species-panel">
-        <div class="species-header">Filtre taxonomique</div>
+        <div class="species-header">Recherche taxonomique</div>
         <div id="taxonomy" class="taxonomy-controls">
-            <div class="tax-row"><label for="select-kingdom">Kingdom</label><select id="select-kingdom"><option value="">—</option></select></div>
-            <div class="tax-row"><label for="select-phylum">Phylum</label><select id="select-phylum" disabled><option value="">—</option></select></div>
-            <div class="tax-row"><label for="select-class">Class</label><select id="select-class" disabled><option value="">—</option></select></div>
-            <div class="tax-row"><label for="select-order">Order</label><select id="select-order" disabled><option value="">—</option></select></div>
-            <div class="tax-row"><label for="select-family">Family</label><select id="select-family" disabled><option value="">—</option></select></div>
-            <div class="tax-row"><label for="select-genus">Genus</label><select id="select-genus" disabled><option value="">—</option></select></div>
-            <div class="tax-row"><label for="select-species">Species</label><select id="select-species" disabled><option value="">—</option></select></div>
-            <div class="tax-row"><label for="select-scientificName">Scientific name</label><select id="select-scientificName" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-kingdom">Règne</label><select id="select-kingdom"><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-phylum">Embranchement</label><select id="select-phylum" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-class">Classe</label><select id="select-class" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-order">Ordre</label><select id="select-order" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-family">Famille</label><select id="select-family" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-genus">Genre</label><select id="select-genus" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-species">Espèce</label><select id="select-species" disabled><option value="">—</option></select></div>
+            <div class="tax-row"><label for="select-scientificName">Nom scientifique</label><select id="select-scientificName" disabled><option value="">—</option></select></div>
             <div class="tax-actions">
-                <button id="btn-reset-taxonomy" type="button">Réinitialiser</button>
+                <button id="btn-reset-taxonomy" type="button">Réinitialiser les champs</button>
             </div>
         </div>
     </div>
@@ -46,36 +46,36 @@
     <!-- Panneau dates (en bas à droite) -->
     <!-- Panneau documents (doit être au-dessus de taxonomie) -->
     <div id="limit-panel" class="limit-panel">
-        <div class="limit-header">Documents</div>
+        <div class="limit-header">Tri des documents</div>
         <div class="limit-controls">
             <div class="limit-row single">
-                <label>Nombre: <span id="doc-limit-label">500</span></label>
+                <label>Limite de document fixé à <span id="doc-limit-label">500</span></label>
                 <div class="range-single">
                     <input id="doc-limit" type="range" min="100" max="20000" step="100" value="500" />
                 </div>
             </div>
             <div class="limit-row sort">
-                <label>Trier</label>
+                <label>Trié par</label>
                 <div class="sort-groups" role="group" aria-label="Tri des observations">
                     <div class="sort-group" data-field="_id">
                         <div class="sort-group-title" aria-hidden="true"><span class="icon icon-id"></span></div>
                         <div class="sort-pair">
-                            <button class="sort-mini-btn" data-sort="_id:asc" title="ID croissant" aria-label="ID croissant"><span class="icon icon-up" aria-hidden="true"></span></button>
-                            <button class="sort-mini-btn" data-sort="_id:desc" title="ID décroissant" aria-label="ID décroissant"><span class="icon icon-down" aria-hidden="true"></span></button>
+                            <button type="button" class="sort-mini-btn" data-sort="_id:asc" title="ID croissant" aria-label="ID croissant"><span class="icon icon-up" aria-hidden="true"></span></button>
+                            <button type="button" class="sort-mini-btn" data-sort="_id:desc" title="ID décroissant" aria-label="ID décroissant"><span class="icon icon-down" aria-hidden="true"></span></button>
                         </div>
                     </div>
                     <div class="sort-group" data-field="decimalLongitude">
                         <div class="sort-group-title" aria-hidden="true"><span class="icon icon-globe-lon"></span></div>
                         <div class="sort-pair">
-                            <button class="sort-mini-btn" data-sort="decimalLongitude:asc" title="Longitude croissante" aria-label="Longitude croissante"><span class="icon icon-up" aria-hidden="true"></span></button>
-                            <button class="sort-mini-btn" data-sort="decimalLongitude:desc" title="Longitude décroissante" aria-label="Longitude décroissante"><span class="icon icon-down" aria-hidden="true"></span></button>
+                            <button type="button" class="sort-mini-btn" data-sort="decimalLongitude:asc" title="Longitude croissante" aria-label="Longitude croissante"><span class="icon icon-up" aria-hidden="true"></span></button>
+                            <button type="button" class="sort-mini-btn" data-sort="decimalLongitude:desc" title="Longitude décroissante" aria-label="Longitude décroissante"><span class="icon icon-down" aria-hidden="true"></span></button>
                         </div>
                     </div>
                     <div class="sort-group" data-field="decimalLatitude">
                         <div class="sort-group-title" aria-hidden="true"><span class="icon icon-globe-lat"></span></div>
                         <div class="sort-pair">
-                            <button class="sort-mini-btn" data-sort="decimalLatitude:asc" title="Latitude croissante" aria-label="Latitude croissante"><span class="icon icon-up" aria-hidden="true"></span></button>
-                            <button class="sort-mini-btn" data-sort="decimalLatitude:desc" title="Latitude décroissante" aria-label="Latitude décroissante"><span class="icon icon-down" aria-hidden="true"></span></button>
+                            <button type="button" class="sort-mini-btn" data-sort="decimalLatitude:asc" title="Latitude croissante" aria-label="Latitude croissante"><span class="icon icon-up" aria-hidden="true"></span></button>
+                            <button type="button" class="sort-mini-btn" data-sort="decimalLatitude:desc" title="Latitude décroissante" aria-label="Latitude décroissante"><span class="icon icon-down" aria-hidden="true"></span></button>
                         </div>
                     </div>
                 </div>
@@ -85,10 +85,10 @@
 
     <!-- Panneau dates (doit être au-dessus du panneau documents) -->
     <div id="date-panel" class="date-panel">
-        <div class="date-header">Période</div>
+        <div class="date-header">Temporalité</div>
         <div class="date-controls">
             <div class="date-row dual">
-                <label>Période: <span id="year-min-label">—</span> — <span id="year-max-label">—</span></label>
+                <label>De <span id="year-min-label">—</span> à <span id="year-max-label">—</span></label>
                 <div class="range-dual">
                     <input id="year-min" type="range" min="0" max="0" value="0" />
                     <input id="year-max" type="range" min="0" max="0" value="0" />

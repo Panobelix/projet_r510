@@ -1,3 +1,12 @@
+/**
+ * Script client (Leaflet + UI)
+ * ----------------------------
+ * - Initialise la carte et ses calques
+ * - Gère les panneaux (taxonomie, dates, limite/tri, filtres rapides)
+ * - Interroge l'API /api/observations selon les filtres courants
+ * - Affiche un overlay de chargement et permet d'annuler les requêtes
+ * - Superpose une grille biodiversité pré-calculée
+ */
 const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
   attribution: '© OpenStreetMap'
@@ -11,6 +20,7 @@ const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenTopoMap'
 });
 
+// Instanciation de la carte Leaflet
 const map = L.map('map', {
   center: [-14.2350, -51.9253],
   zoom: 4,
@@ -20,6 +30,7 @@ L.control.layers({ 'OpenStreetMap': osm, 'Satellite': sat, 'Topographique': topo
 // Supprimer le préfixe "Leaflet |" du contrôle d'attribution (on conserve les crédits fournisseurs)
 try { if (map.attributionControl && map.attributionControl.setPrefix) map.attributionControl.setPrefix(false); } catch {}
 
+// Couche principale des marqueurs (observations)
 const markers = L.layerGroup().addTo(map);
 // Couche dédiée pour la visualisation latitude-diversité (séparée des marqueurs d'observations)
 let latDivLayer = L.layerGroup();
@@ -39,7 +50,7 @@ const hideLoader = () => {
   if (loadingOverlay) loadingOverlay.classList.remove('active');
 };
 
-// Toasts non bloquants, style app
+// Toasts non bloquants (notifications in-app)
 function showToast(message, type = 'info', timeoutMs = 4000) {
   if (!toastContainer) { try { alert(message); } catch {} return; }
   const el = document.createElement('div');
@@ -55,7 +66,7 @@ function showToast(message, type = 'info', timeoutMs = 4000) {
   if (timeoutMs > 0) setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 250); }, timeoutMs);
 }
 
-// Gestion d'annulation des requêtes via AbortController
+// Gestion centralisée d'annulation de requêtes via AbortController
 const activeControllers = new Set();
 function fetchWithCancel(url, init = {}) {
   const controller = new AbortController();
@@ -85,7 +96,7 @@ if (statusDiv) statusDiv.textContent = 'Sélectionnez un filtre taxonomique pour
 
 // (Progress UI removed) We'll log progress to console instead.
 
-// ----- Panel Documents (limite de résultats pour /api/observations) -----
+// ----- Panneau Documents (limite de résultats pour /api/observations) -----
 const docLimitInput = document.getElementById('doc-limit');
 const docLimitLabel = document.getElementById('doc-limit-label');
 const rangeSingleEl = document.querySelector('.range-single');
@@ -108,7 +119,8 @@ function limitToSlider(limit) {
   const s = Math.log(clamped / DOC_MIN) / Math.log(ratio); // [0..1]
   return Math.round(s * SLIDER_MAX);
 }
-let sortState = { field: '_id', dir: 'asc' }; // tri par défaut (ID croissant)
+// État courant du tri (par défaut: ID croissant)
+let sortState = { field: '_id', dir: 'asc' };
 
 function getDocLimit() { return docLimit; }
 
@@ -127,6 +139,7 @@ function updateDocLimitTrack() {
   if (over) rangeSingleEl.classList.add('overlimit'); else rangeSingleEl.classList.remove('overlimit');
 }
 
+// Initialise le panneau limite/tri et branche les actions UI
 function initDocLimitPanel() {
   if (!docLimitInput) return;
   // Initialiser la position du slider en fonction de docLimit par défaut
@@ -179,6 +192,7 @@ function initDocLimitPanel() {
       showLoader();
       try {
         await updateMapForFilters(filters);
+        if (statusDiv) statusDiv.textContent = `Tri: ${field} ${dir}`;
       } finally {
         hideLoader();
       }
@@ -201,6 +215,7 @@ const selects = {
 const levels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
 
 // Réinitialise et désactive tous les sélecteurs taxonomiques situés en dessous du niveau donné.
+// Désactive + réinitialise tous les selects en dessous d'un niveau donné
 function resetBelow(level) {
   const idx = levels.indexOf(level);
   for (let i = idx + 1; i < levels.length; i++) {
@@ -218,6 +233,7 @@ function populateSelect(el, values) {
 }
 
 // Récupère depuis l'API les valeurs distinctes pour un niveau taxonomique donné en appliquant les filtres.
+// Récupère les valeurs distinctes d'un niveau taxo en tenant compte des filtres amont
 async function fetchTaxValues(level, currentFilters) {
   const params = new URLSearchParams({ level });
   for (const k of levels) {
@@ -234,6 +250,7 @@ async function fetchTaxValues(level, currentFilters) {
 }
 
 // Charge les observations selon les filtres, met à jour les marqueurs sur la carte et gère le loader.
+// Charge les observations selon les filtres, met à jour les marqueurs et le statut
 async function updateMapForFilters(filters) {
   // Avertir si on lance une requête avec un docLimit très élevé
   try {
@@ -337,7 +354,7 @@ async function updateMapForFilters(filters) {
   }
 }
 
-// Utilities pour sécurité HTML dans les popups
+// Utilities d'échappement HTML (sécurité XSS dans les popups)
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -353,7 +370,7 @@ function escapeAttr(str) {
 // Cache simple pour éviter de recharger plusieurs fois la même image
 const speciesImageCache = new Map(); // name -> url|null
 
-// Recherche d'une petite image d'espèce (Wikipedia FR/EN, puis fallback GBIF)
+// Recherche d'une petite image d'espèce (Wikipedia FR/EN, fallback GBIF)
 async function fetchSpeciesImage(scientificName) {
   if (!scientificName) return null;
   const key = scientificName.trim().toLowerCase();
@@ -432,6 +449,7 @@ async function fetchSpeciesImage(scientificName) {
 // getCurrentYearFilter sera défini plus bas, après la déclaration des variables du panneau date
 
 // Gestionnaire appelé quand un sélecteur taxonomique change : met à jour les sélecteurs descendants et la carte.
+// Quand un select taxo change: met à jour les descendants et relance la carte
 async function onTaxChange(levelChanged) {
   try {
     const filters = {};
@@ -466,6 +484,7 @@ async function onTaxChange(levelChanged) {
 }
 
 // Initialise le panneau taxonomique (remplit kingdom, attache les événements, gère le bouton reset).
+// Initialise le panneau taxonomie (peuple 'kingdom' et attache les listeners)
 async function initTaxonomyPanel() {
   showLoader();
   try {
@@ -517,6 +536,7 @@ let yearBounds = { min: null, max: null };
 let yearFilterTouched = false;
 
 // Met à jour la piste bleue entre les deux poignées en fonction des valeurs courantes
+// Met à jour la piste active (entre les deux années) sur le slider double
 function updateDualRangeTrack() {
   if (!rangeDualEl || !yearMinInput || !yearMaxInput) return;
   if (yearBounds.min === null || yearBounds.max === null) return;
@@ -530,6 +550,7 @@ function updateDualRangeTrack() {
 }
 
 // Construit le filtre d'années à partir des sliders si l'utilisateur a interagi, sinon retourne vide.
+// Construit le filtre d'années courant (si l'utilisateur a touché les sliders)
 function getCurrentYearFilter() {
   // N'applique pas le filtre d'années tant que l'utilisateur n'a pas interagi
   if (!yearFilterTouched) return {};
@@ -543,6 +564,7 @@ function getCurrentYearFilter() {
 }
 
 // Interroge l'API pour obtenir les bornes (min/max) des années en fonction des filtres fournis.
+// (Optionnel) Récupère des bornes d'années; ici on utilise plutôt /api/years/minmax
 async function fetchYearBounds(currentFilters) {
   // On récupère les bornes de l’attribut 'year' selon les filtres (ou globalement)
   const params = new URLSearchParams();
@@ -557,6 +579,7 @@ async function fetchYearBounds(currentFilters) {
 }
 
 // Configure les sliders d'années (min/max/valeurs) et met à jour les étiquettes affichées.
+// Positionne et (ré)initialise les sliders d'années
 function setYearControls(minYear, maxYear) {
   if (!yearMinInput || !yearMaxInput) return;
   yearMinInput.min = String(minYear);
@@ -573,6 +596,7 @@ function setYearControls(minYear, maxYear) {
 }
 
 // Lit les sélecteurs taxonomiques et retourne un objet contenant les filtres actifs.
+// Retourne les filtres taxonomiques actifs (sélecteurs non vides)
 function getCurrentTaxFilters() {
   const filters = {};
   for (const lvl of levels) {
@@ -583,12 +607,17 @@ function getCurrentTaxFilters() {
 }
 
 // Initialise le panneau des dates : récupère les bornes, configure les sliders et attache les événements.
+// Initialise le panneau dates: lit /api/years/minmax puis attache les sliders
 async function initDatePanel() {
   // Fallback simple: déterminer les bornes min/max depuis un échantillon si l’API year n’existe pas
   try {
     const filters = getCurrentTaxFilters();
     const params = new URLSearchParams(filters);
-  const resp = await fetchWithCancel('/api/years/minmax?' + params.toString());
+    const resp = await fetchWithCancel('/api/years/minmax?' + params.toString());
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}${text ? ': ' + text : ''}`);
+    }
     const data = await resp.json();
     const now = new Date().getFullYear();
     const minYear = Number.isFinite(Number(data.minYear)) ? Number(data.minYear) : now - 50;
@@ -675,7 +704,7 @@ let bioGridLayer = null;           // L.LayerGroup des rectangles de cellules
 let bioGridActive = false;         // overlay actif
 let bioGridCellSizeDeg = 0.25;      // taille de cellule en degrés (lat/lng), fixe (4x plus petit que 1.0)
 
-const DEFAULT_BIOGRID_MAXDOCS = 35000000;
+const DEFAULT_BIOGRID_MAXDOCS = 35000000; // borne supérieure utilisée côté serveur
 function getBioGridMaxDocs() {
   try {
     const urlVal = new URLSearchParams(window.location.search).get('maxDocs');
@@ -706,11 +735,13 @@ function boundsFromKey(key, sizeDeg) {
   return [[lat0, lng0], [lat1, lng1]];
 }
 
+// Palette simple: rouge (faible), orange (moyen), vert (fort)
 function colorForCount(c) {
   if (c > 100) return '#28a745';      // vert
   if (c >= 50) return '#ff9800';      // orange
   return '#e53935';                  // rouge
 }
+// Va chercher la grille globale en cache (ou signale si calcul en cours)
 async function fetchGridCellsGlobal() {
   // Essayer d'abord le cache
   const cacheParams = new URLSearchParams({ sizeDeg: String(bioGridCellSizeDeg) });
@@ -730,6 +761,7 @@ async function fetchGridCellsGlobal() {
   throw new Error('bio-grid-cache-not-ready');
 }
 
+// Dessine les cellules rectangulaires de la grille biodiversité
 function drawBioGridFromCells(cells) {
   const rects = [];
   for (const cell of cells) {
@@ -755,6 +787,7 @@ function drawBioGridFromCells(cells) {
   console.log('[bio-grid] rectangles dessinés:', rects.length);
 }
 
+// Rafraîchit la grille biodiversité si l'overlay est actif
 async function refreshBioGridGlobal() {
   if (!bioGridActive) return;
   showLoader();
@@ -769,6 +802,7 @@ async function refreshBioGridGlobal() {
   }
 }
 
+// Active/désactive l'overlay biodiversité global (grille fixe)
 async function toggleBiodiversityGrid(enable) {
   bioGridActive = enable;
   if (enable) {
@@ -779,6 +813,7 @@ async function toggleBiodiversityGrid(enable) {
 }
 
 // Attacher le bouton Filtre 1 au toggle de la grille biodiversité
+// Bouton de filtre rapide f1: toggle de l'overlay biodiversité
 (function attachBiodiversityButton() {
   const btn = document.querySelector('[data-filter="f1"]');
   if (!btn) return;
@@ -798,12 +833,14 @@ async function toggleBiodiversityGrid(enable) {
 let markersAttached = true;
 function showMarkersLayer() { if (!markersAttached) { markers.addTo(map); markersAttached = true; } }
 function hideMarkersLayer() { if (markersAttached) { try { map.removeLayer(markers); } catch {} markersAttached = false; } }
+// Y a-t-il au moins un filtre rapide actif ?
 function anyQuickFilterActive() {
   return !!document.querySelector('.filter-buttons .filter-btn.active');
 }
 function updateMarkerVisibilityForFilters() {
   if (anyQuickFilterActive()) hideMarkersLayer(); else showMarkersLayer();
 }
+// Branche les autres boutons de filtres rapides (f3, f4)
 (function attachOtherQuickFilters() {
   const buttons = document.querySelectorAll('.filter-buttons .filter-btn');
   buttons.forEach(btn => {
@@ -817,6 +854,7 @@ function updateMarkerVisibilityForFilters() {
 })();
 
 // Attacher le bouton Filtre 2 pour afficher la corrélation latitude-diversité
+// Filtre rapide f2: afficher une “corrélation latitude-diversité” (mock)
 (function attachLatitudeDiversityButton() {
   const btn = document.querySelector('[data-filter="f2"]');
   if (!btn) return;
@@ -850,6 +888,7 @@ function updateMarkerVisibilityForFilters() {
 })();
 
 // ---- Positionner les panneaux à gauche : date au-dessus de documents, au-dessus de taxonomie ----
+// Positionne les panneaux (gauche) en pile: date au-dessus, puis limit, puis taxonomie
 (function stackLeftPanels() {
   const datePanel = document.getElementById('date-panel');
   const limitPanel = document.getElementById('limit-panel');
@@ -892,6 +931,7 @@ function updateMarkerVisibilityForFilters() {
 })();
 
 // ---- Repositionner le panneau de filtres : milieu de la page à droite ----
+// Positionne le panneau “Filtres rapides” à droite, centré verticalement
 (function moveFilterPanelFixedTopRight() {
   const filterPanel = document.getElementById('filter-panel');
   if (!filterPanel) return;
@@ -902,6 +942,7 @@ function updateMarkerVisibilityForFilters() {
 })();
 
 // ---- Panneau 'Ajouter un document' et modal ----
+// Panneau “Ajouter un document” + modal (démo minimaliste)
 (function initAddPanel() {
   const addPanel = document.getElementById('add-panel');
   const modal = document.getElementById('add-modal');
@@ -938,6 +979,15 @@ function updateMarkerVisibilityForFilters() {
     extraList?.appendChild(row);
   });
 
+  // Parse un nombre en tolérant les virgules et espaces
+  function parseLocaleNumber(v) {
+    if (v === undefined || v === null) return null;
+    const s = String(v).trim().replace(',', '.');
+    if (s === '') return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -949,6 +999,20 @@ function updateMarkerVisibilityForFilters() {
       const v = row.querySelector('.extra-val')?.value ?? '';
       if (k) payload[k] = String(v);
     });
+
+    // Validation/normalisation côté client des coordonnées
+    const lat = parseLocaleNumber(payload.decimalLatitude);
+    const lng = parseLocaleNumber(payload.decimalLongitude);
+    if (lat === null || lng === null) {
+      showToast('Veuillez renseigner des coordonnées numériques (latitude/longitude).', 'error');
+      return;
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      showToast('Coordonnées hors bornes: latitude [-90,90], longitude [-180,180].', 'error');
+      return;
+    }
+    payload.decimalLatitude = lat;
+    payload.decimalLongitude = lng;
 
     showLoader();
     try {
@@ -980,6 +1044,7 @@ function updateMarkerVisibilityForFilters() {
 
 
 // ----- Corrélation latitude-diversité -----
+// Démo: génère des points fictifs pour illustrer une corrélation lat/diversité
 async function showLatitudeDiversityCorrelation() {
   showLoader();
   try {
