@@ -735,11 +735,15 @@ function boundsFromKey(key, sizeDeg) {
   return [[lat0, lng0], [lat1, lng1]];
 }
 
-// Palette simple: rouge (faible), orange (moyen), vert (fort)
+// Palette logarithmique sur la richesse spécifique (nb d'espèces distinctes)
+// Bins ~ [1-9], [10-99], [100-999], [1000-9999], [>=10000]
 function colorForCount(c) {
-  if (c > 100) return '#28a745';      // vert
-  if (c >= 50) return '#ff9800';      // orange
-  return '#e53935';                  // rouge
+  if (!Number.isFinite(c) || c <= 0) return '#00000000';
+  if (c < 10) return '#e53935';       // rouge
+  if (c < 100) return '#ff9800';      // orange
+  if (c < 1000) return '#f2c037';     // jaune
+  if (c < 10000) return '#7cb342';    // vert moyen
+  return '#2e7d32';                   // vert foncé
 }
 // Va chercher la grille globale en cache (ou signale si calcul en cours)
 async function fetchGridCellsGlobal() {

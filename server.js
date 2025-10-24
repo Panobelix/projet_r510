@@ -4,7 +4,7 @@
  * - Sert l'UI statique (Leaflet + panneaux)
  * - Expose des API optimisées MongoDB pour:
  *   - /api/observations: requête dynamique (taxonomie + année + tri + limit)
- *   - /api/coords, /api/coords/grid: coordonnées et grille densité (bbox)
+ *   - /api/coords: coordonnées simples (utilitaires)
  *   - /api/years/minmax: bornes rapides des années sous filtres taxo
  *   - /api/taxonomy/values: valeurs distinctes d’un niveau (cascade)
  *
@@ -31,9 +31,9 @@ app.use(express.json({ limit: '1mb' }));
 connectToMongo();
 
 // =================== Cache de grille (globale, pré-calculée) ===================
-// Objectif: calculer périodiquement une grille densité monde (ou national) côté serveur
-// pour offrir une superposition “biodiversité par effort d’observation” instantanée.
-// Structure: clé sizeDeg (string) -> { cells, scanned, updatedAt, capped }
+// Objectif: calculer périodiquement une grille de richesse spécifique (nb d'espèces distinctes
+// par cellule) côté serveur pour offrir une superposition instantanée.
+// Structure: clé sizeDeg (string) -> { cells, scanned, updatedAt, capped, metric: 'speciesRichness' }
 const gridCache = new Map();
 let isComputingCache = false;
 
@@ -49,7 +49,7 @@ async function computeGlobalGrid(sizeDeg = 0.25, cap = 35000000) {
   }
   isComputingCache = true;
   const key = String(sizeDeg);
-  console.log(`[grid-cache] Démarrage calcul global sizeDeg=${key}, cap=${cap}`);
+  console.log(`[grid-cache] Démarrage calcul global (richesse spécifique) sizeDeg=${key}, cap=${cap}`);
   try {
     // Requête Mongo: ne récupérer que les docs avec coords numériques (projection minimale)
     const findQuery = {
@@ -57,10 +57,11 @@ async function computeGlobalGrid(sizeDeg = 0.25, cap = 35000000) {
         decimalLatitude: { $type: 'number' },
         decimalLongitude: { $type: 'number' }
       },
-      options: { projection: { _id: 0, decimalLatitude: 1, decimalLongitude: 1 } }
+      options: { projection: { _id: 0, decimalLatitude: 1, decimalLongitude: 1, scientificName: 1 } }
     };
     const cursor = collection.find(findQuery.filter, findQuery.options);
-    const map = new Map();
+    // Map cellule -> Set de hash d'espèces distinctes (scientificName)
+    const uniq = new Map();
     let scanned = 0;
     // Fonctions utilitaires de discrétisation et de géométrie
     const cellKeyFromLatLng = (lat, lng) => {
@@ -79,6 +80,18 @@ async function computeGlobalGrid(sizeDeg = 0.25, cap = 35000000) {
     let lastLog = t0;
     const LOG_EVERY = 200000; // fréquence de logs en documents
     const LOG_MS = 3000; // et/ou toutes les 3s
+    // Hash 53-bit rapide pour réduire l'empreinte mémoire vs strings
+    const hash53 = (s) => {
+      let h1 = 0xdeadbeef ^ s.length, h2 = 0x41c6ce57 ^ s.length;
+      for (let i = 0, ch; i < s.length; i++) {
+        ch = s.charCodeAt(i);
+        h1 = Math.imul(h1 ^ ch, 2654435761);
+        h2 = Math.imul(h2 ^ ch, 1597334677);
+      }
+      h1 = (h1 ^ (h2 >>> 16)) >>> 0;
+      h2 = (h2 ^ (h1 >>> 16)) >>> 0;
+      return (h2 * 0x200000 + (h1 >>> 11)) * 1 + (h1 & 0x7ff);
+    };
     // eslint-disable-next-line no-restricted-syntax
     for await (const doc of cursor) {
       scanned++;
@@ -86,27 +99,31 @@ async function computeGlobalGrid(sizeDeg = 0.25, cap = 35000000) {
       const lat = doc.decimalLatitude;
       const lng = doc.decimalLongitude;
       if (typeof lat !== 'number' || typeof lng !== 'number') continue;
+      const sn = typeof doc.scientificName === 'string' ? doc.scientificName.trim().toLowerCase() : '';
+      if (!sn) continue; // on ne compte que les espèces identifiées
       const key = cellKeyFromLatLng(lat, lng);
-      map.set(key, (map.get(key) || 0) + 1);
+      let set = uniq.get(key);
+      if (!set) { set = new Set(); uniq.set(key, set); }
+      set.add(hash53(sn));
 
       if (scanned % LOG_EVERY === 0) {
         const now = Date.now();
         if (now - lastLog >= LOG_MS) {
           const secs = (now - t0) / 1000;
           const rate = scanned / Math.max(1, secs);
-          console.log(`[grid-cache] progress scanned=${scanned} cells=${map.size} rate=${rate.toFixed(1)} doc/s elapsed=${secs.toFixed(1)}s`);
+          console.log(`[grid-cache] progress scanned=${scanned} cells=${uniq.size} rate=${rate.toFixed(1)} doc/s elapsed=${secs.toFixed(1)}s`);
           lastLog = now;
         }
       }
     }
     const cells = [];
-    for (const [k, count] of map.entries()) {
-      cells.push({ key: k, count, bounds: boundsFromKey(k) });
+    for (const [k, set] of uniq.entries()) {
+      cells.push({ key: k, count: set.size, bounds: boundsFromKey(k) });
     }
     cells.sort((a,b) => b.count - a.count);
-    gridCache.set(key, { cells, scanned, updatedAt: new Date().toISOString(), capped: scanned >= cap });
+    gridCache.set(key, { cells, scanned, updatedAt: new Date().toISOString(), capped: scanned >= cap, metric: 'speciesRichness' });
     const t1 = Date.now();
-    console.log(`[grid-cache] Calcul terminé sizeDeg=${key} cells=${cells.length} scanned=${scanned} time=${((t1-t0)/1000).toFixed(1)}s`);
+    console.log(`[grid-cache] Calcul terminé (richesse spécifique) sizeDeg=${key} cells=${cells.length} scanned=${scanned} time=${((t1-t0)/1000).toFixed(1)}s`);
     return true;
   } catch (e) {
     console.error('[grid-cache] Erreur calcul:', e);
@@ -372,150 +389,8 @@ app.get('/api/coords', async (req, res) => {
   }
 });
 
-// Endpoint d'agrégation serveur: renvoie des cellules de grille (compte de points) dans un bbox
-// - Agrégation “streaming” côté Node pour éviter de charger tout en mémoire
-// - Filtres: taxo égalité, plage year, bbox, coords numériques
-// GET /api/coords/grid?south=&west=&north=&east=&sizeDeg=1.0&maxDocs=300000&...filtres
-app.get('/api/coords/grid', async (req, res) => {
-  const collection = getCollection();
-  if (!collection) {
-    return res.status(500).send("La connexion à la BDD n'est pas encore établie.");
-  }
-  try {
-    // BBox normalisé
-    const south = Number(req.query.south ?? -90);
-    const west = Number(req.query.west ?? -180);
-    const north = Number(req.query.north ?? 90);
-    const east = Number(req.query.east ?? 180);
-    const hasBbox = [south, west, north, east].every(Number.isFinite) && south <= north && west <= east;
-
-    // Taille de cellule (degrés)
-    let sizeDeg = Number(req.query.sizeDeg ?? 1.0);
-    if (!Number.isFinite(sizeDeg) || sizeDeg <= 0) sizeDeg = 1.0;
-    // clamp raisonnable
-    sizeDeg = Math.max(0.005, Math.min(sizeDeg, 10));
-
-        // Cap du nombre de documents à parcourir
-        let maxDocs = Number(req.query.maxDocs ?? 35000000);
-        if (!Number.isFinite(maxDocs) || maxDocs <= 0) maxDocs = 35000000;
-
-    // Filtres taxonomiques
-    const taxonomyLevels = ['kingdom','phylum','class','order','family','genus','species','scientificName'];
-    const match = {};
-    for (const lvl of taxonomyLevels) {
-      const val = req.query[lvl];
-      if (val) match[lvl] = String(val);
-    }
-    // Filtre année
-    const yMin = req.query.yearMin ? Number(req.query.yearMin) : null;
-    const yMax = req.query.yearMax ? Number(req.query.yearMax) : null;
-    if (Number.isFinite(yMin) || Number.isFinite(yMax)) {
-      match.year = {};
-      if (Number.isFinite(yMin)) match.year.$gte = yMin;
-      if (Number.isFinite(yMax)) match.year.$lte = yMax;
-    }
-
-  // Requête Mongo explicite (projection inline et filtre construit dynamiquement)
-  const findQuery = {
-    filter: (() => {
-      const f = {};
-      // Filtres taxonomiques
-      for (const lvl of ['kingdom','phylum','class','order','family','genus','species','scientificName']) {
-        const val = req.query[lvl];
-        if (val) f[lvl] = String(val);
-      }
-      // Types numériques requis
-      f.decimalLatitude = { ...(f.decimalLatitude || {}), $type: 'number' };
-      f.decimalLongitude = { ...(f.decimalLongitude || {}), $type: 'number' };
-      // Filtre année
-      const yMin = req.query.yearMin ? Number(req.query.yearMin) : null;
-      const yMax = req.query.yearMax ? Number(req.query.yearMax) : null;
-      if (Number.isFinite(yMin) || Number.isFinite(yMax)) {
-        f.year = {};
-        if (Number.isFinite(yMin)) f.year.$gte = yMin;
-        if (Number.isFinite(yMax)) f.year.$lte = yMax;
-      }
-      // BBox
-      if (hasBbox) {
-        f.decimalLatitude.$gte = south;
-        f.decimalLatitude.$lte = north;
-        f.decimalLongitude.$gte = west;
-        f.decimalLongitude.$lte = east;
-      }
-      return f;
-    })(),
-    options: { projection: { _id: 0, decimalLatitude: 1, decimalLongitude: 1, year: 1 } }
-  };
-  const cursor = collection.find(findQuery.filter, findQuery.options);
-  const t0 = Date.now();
-  let lastLog = t0;
-  const LOG_EVERY = 100000;
-  const LOG_MS = 3000;
-
-    // Agrégation côté Node
-    const map = new Map(); // key -> count
-    let scanned = 0;
-    // utilitaires
-    const cellKeyFromLatLng = (lat, lng) => {
-      const i = Math.floor((lat + 90) / sizeDeg);
-      const j = Math.floor((lng + 180) / sizeDeg);
-      return `${i}:${j}`;
-    };
-    const boundsFromKey = (key) => {
-      const [iStr, jStr] = key.split(':');
-      const i = Number(iStr); const j = Number(jStr);
-      const lat0 = -90 + i * sizeDeg;
-      const lat1 = lat0 + sizeDeg;
-      const lng0 = -180 + j * sizeDeg;
-      const lng1 = lng0 + sizeDeg;
-      return [[lat0, lng0], [lat1, lng1]];
-    };
-
-    // Itérer en flux pour éviter l'explosion mémoire
-    // Utiliser for await si supporté
-    // eslint-disable-next-line no-restricted-syntax
-    for await (const doc of cursor) {
-      scanned++;
-      if (scanned > maxDocs) break;
-      const lat = doc.decimalLatitude;
-      const lng = doc.decimalLongitude;
-      if (typeof lat !== 'number' || typeof lng !== 'number') continue;
-      if (hasBbox) {
-        if (lat < south || lat > north || lng < west || lng > east) continue;
-      }
-      const key = cellKeyFromLatLng(lat, lng);
-      map.set(key, (map.get(key) || 0) + 1);
-
-      if (scanned % LOG_EVERY === 0) {
-        const now = Date.now();
-        if (now - lastLog >= LOG_MS) {
-          const secs = (now - t0) / 1000;
-          const rate = scanned / Math.max(1, secs);
-          console.log(`[Calcul du filtre] scanned=${scanned} cells=${map.size} rate=${rate.toFixed(1)} doc/s elapsed=${secs.toFixed(1)}s sizeDeg=${sizeDeg}${hasBbox ? ' bbox' : ''}`);
-          lastLog = now;
-        }
-      }
-    }
-
-    const cells = [];
-    for (const [key, count] of map.entries()) {
-      cells.push({ key, count, bounds: boundsFromKey(key) });
-    }
-    cells.sort((a,b) => b.count - a.count);
-    const t1 = Date.now();
-    console.log(`[Filtre disponible] scanned=${scanned} cells=${cells.length} capped=${scanned>=maxDocs} time=${((t1-t0)/1000).toFixed(1)}s sizeDeg=${sizeDeg}${hasBbox ? ' bbox' : ''}`);
-    res.json({
-      bbox: { south, west, north, east },
-      sizeDeg,
-      cells,
-      scanned,
-      capped: scanned >= maxDocs
-    });
-  } catch (err) {
-    console.error('Erreur /api/coords/grid :', err);
-    res.status(500).send('Erreur lors de l\'agrégation de la grille.');
-  }
-});
+// NOTE: L'endpoint dynamique /api/coords/grid a été retiré (non utilisé). La grille globale
+// en cache /api/coords/grid/cached reste disponible et calcule désormais la richesse spécifique.
 
 // Endpoint cache: renvoie la grille globale pré-calculée (ou statut en cours)
 // GET /api/coords/grid/cached?sizeDeg=0.25
